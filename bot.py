@@ -158,28 +158,30 @@ class MirrorLeechBot:
 
         logger.info("✅ All handlers registered")
 
-    def auth_filter(self, _, __, message: Message) -> bool:
-        """Check if user is authorized"""
-        user_id = message.from_user.id
-        chat_id = message.chat.id
-
-        # Owner is always authorized
-        if user_id == config.OWNER_ID:
-            return True
-
-        # Check sudo users
-        if user_id in config.SUDO_USERS_LIST:
-            return True
-
-        # Check authorized chats
-        if config.AUTHORIZED_CHATS_LIST:
-            return chat_id in config.AUTHORIZED_CHATS_LIST
-
-        # If no restrictions set, allow all
-        if not config.AUTHORIZED_CHATS_LIST and not config.SUDO_USERS_LIST:
-            return True
-
-        return False
+    @staticmethod
+def auth_filter(_, __, message: Message) -> bool:
+    """Check if user is authorized"""
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # Owner is always authorized
+    if user_id == config.OWNER_ID:
+        return True
+    
+    # Check sudo users
+    if user_id in config.SUDO_USERS_LIST:
+        return True
+    
+    # Check authorized chats
+    if config.AUTHORIZED_CHATS_LIST:
+        return chat_id in config.AUTHORIZED_CHATS_LIST
+    
+    # If no restrictions set, allow all
+    if not config.AUTHORIZED_CHATS_LIST and not config.SUDO_USERS_LIST:
+        return True
+    
+    return False
+    
 
     async def start_command(self, client: Client, message: Message):
         """Handle /start command"""
