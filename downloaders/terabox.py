@@ -6,7 +6,6 @@ from typing import Optional, Callable
 from urllib.parse import quote
 from utils.helpers import sanitize_filename, get_readable_file_size
 import aiofiles
-import math
 
 logger = logging.getLogger(__name__)
 
@@ -15,25 +14,25 @@ class TeraboxDownloader:
         self.session = None
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
         self.api_url = "https://wdzone-terabox-api.vercel.app/api"
-        self.max_connections = 6  # Parallel download connections
-        self.chunk_size = 256 * 1024  # 256KB chunks (32x larger!)
+        self.chunk_size = 128 * 1024  # 128KB chunks (16x larger!)
     
     async def get_session(self):
-        """Get or create ultra-optimized aiohttp session"""
+        """Get or create optimized aiohttp session - COMPATIBLE VERSION"""
         if not self.session:
+            # COMPATIBLE TCPConnector settings (removed tcp_nodelay)
             connector = aiohttp.TCPConnector(
-                limit=20,           # Total connection pool size
-                limit_per_host=8,   # Max connections per host
+                limit=15,           # Total connection pool size
+                limit_per_host=6,   # Max connections per host
                 ttl_dns_cache=300,  # DNS cache TTL
                 use_dns_cache=True,
-                tcp_nodelay=True,   # ⚡ Disable Nagle's algorithm for speed
                 enable_cleanup_closed=True
+                # REMOVED: tcp_nodelay (not supported in aiohttp 3.9.1)
             )
             
             timeout = aiohttp.ClientTimeout(
                 total=600,      # 10 minutes total
                 connect=30,     # 30s to connect  
-                sock_read=60    # 1 minute read timeout
+                sock_read=120   # 2 minutes read timeout
             )
             
             self.session = aiohttp.ClientSession(
@@ -43,7 +42,8 @@ class TeraboxDownloader:
                     "User-Agent": self.user_agent,
                     "Accept": "*/*",
                     "Accept-Encoding": "gzip, deflate",
-                    "Connection": "keep-alive"
+                    "Connection": "keep-alive",
+                    "Keep-Alive": "timeout=5, max=1000"
                 }
             )
         return self.session
@@ -138,171 +138,10 @@ class TeraboxDownloader:
         ext = os.path.splitext(filename.lower())[1]
         return ext in video_extensions
     
-    async def get_file_size(self, url: str) -> int:
-        """Get file size using HEAD request"""
-        try:
-            session = await self.get_session()
-            async with session.head(url) as response:
-                if response.status == 200:
-                    return int(response.headers.get('content-length', 0))
-                return 0
-        except:
-            return 0
-    
-    async def download_chunk(self, url: str, start: int, end: int, chunk_id: int, temp_dir: str):
-        """Download a specific chunk of the file"""
-        try:
-            headers = {"Range": f"bytes={start}-{end}"}
-            session = await self.get_session()
-            
-            async with session.get(url, headers=headers) as response:
-                if response.status in [206, 200]:
-                    chunk_data = await response.read()
-                    
-                    chunk_file = os.path.join(temp_dir, f"chunk_{chunk_id}")
-                    async with aiofiles.open(chunk_file, 'wb') as f:
-                        await f.write(chunk_data)
-                    
-                    return len(chunk_data)
-                else:
-                    logger.error(f"❌ Chunk {chunk_id} failed: HTTP {response.status}")
-                    return 0
-        except Exception as e:
-            logger.error(f"❌ Chunk {chunk_id} error: {e}")
-            return 0
-    
-    async def download_multi_connection(self, url: str, file_path: str, progress_callback: Optional[Callable] = None, task_id: str = None):
-        """🚀 ULTRA-FAST multi-connection download"""
-        try:
-            total_size = await self.get_file_size(url)
-            if total_size == 0:
-                logger.warning("⚠️ Could not get file size, falling back to single connection")
-                return await self.download_single_connection(url, file_path, progress_callback, task_id)
-            
-            logger.info(f"📦 File size: {get_readable_file_size(total_size)}")
-            logger.info(f"🚀 Using {self.max_connections} PARALLEL connections for ULTRA-SPEED!")
-            
-            temp_dir = f"/tmp/chunks_{task_id}"
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            # Calculate chunk ranges for parallel download
-            chunk_size_bytes = total_size // self.max_connections
-            chunk_ranges = []
-            
-            for i in range(self.max_connections):
-                start = i * chunk_size_bytes
-                if i == self.max_connections - 1:
-                    end = total_size - 1
-                else:
-                    end = start + chunk_size_bytes - 1
-                chunk_ranges.append((start, end, i))
-            
-            logger.info(f"📊 Created {len(chunk_ranges)} parallel chunks")
-            
-            # Download all chunks simultaneously
-            download_tasks = []
-            for start, end, chunk_id in chunk_ranges:
-                task = self.download_chunk(url, start, end, chunk_id, temp_dir)
-                download_tasks.append(task)
-            
-            # Progress tracking for parallel downloads
-            async def track_progress():
-                while True:
-                    completed_files = [f for f in os.listdir(temp_dir) if f.startswith('chunk_')]
-                    estimated_progress = len(completed_files) / len(chunk_ranges) * total_size
-                    
-                    if progress_callback and task_id:
-                        try:
-                            await progress_callback(int(estimated_progress), total_size, task_id)
-                        except:
-                            pass
-                    
-                    if len(completed_files) >= len(chunk_ranges):
-                        break
-                    await asyncio.sleep(2)
-            
-            # Start progress tracking
-            progress_task = asyncio.create_task(track_progress())
-            
-            # Execute all downloads in parallel
-            chunk_results = await asyncio.gather(*download_tasks, return_exceptions=True)
-            progress_task.cancel()
-            
-            # Combine chunks into final file
-            logger.info("🔗 Combining chunks at ULTRA-SPEED...")
-            async with aiofiles.open(file_path, 'wb') as final_file:
-                for i in range(len(chunk_ranges)):
-                    chunk_file = os.path.join(temp_dir, f"chunk_{i}")
-                    if os.path.exists(chunk_file):
-                        async with aiofiles.open(chunk_file, 'rb') as cf:
-                            chunk_data = await cf.read()
-                            await final_file.write(chunk_data)
-                        os.remove(chunk_file)
-            
-            # Clean up
-            try:
-                os.rmdir(temp_dir)
-            except:
-                pass
-            
-            final_size = os.path.getsize(file_path)
-            logger.info(f"🚀 ULTRA-SPEED download complete: {get_readable_file_size(final_size)}")
-            return file_path
-                
-        except Exception as e:
-            logger.error(f"❌ Multi-connection download failed: {e}")
-            return await self.download_single_connection(url, file_path, progress_callback, task_id)
-    
-    async def download_single_connection(self, url: str, file_path: str, progress_callback: Optional[Callable] = None, task_id: str = None):
-        """Optimized single connection download with large chunks"""
-        try:
-            session = await self.get_session()
-            logger.info(f"🌐 Starting OPTIMIZED single-connection download")
-            
-            async with session.get(url) as response:
-                if response.status == 200:
-                    total_size = int(response.headers.get('content-length', 0))
-                    downloaded = 0
-                    
-                    logger.info(f"📦 File size: {get_readable_file_size(total_size)}")
-                    
-                    # 1MB buffer for maximum efficiency
-                    buffer_size = 1024 * 1024
-                    buffer_data = bytearray()
-                    
-                    async with aiofiles.open(file_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(self.chunk_size):
-                            buffer_data.extend(chunk)
-                            downloaded += len(chunk)
-                            
-                            # Write buffer when full for efficiency
-                            if len(buffer_data) >= buffer_size:
-                                await f.write(buffer_data)
-                                buffer_data.clear()
-                            
-                            if progress_callback and total_size > 0:
-                                try:
-                                    await progress_callback(downloaded, total_size, task_id)
-                                except:
-                                    pass
-                        
-                        # Write remaining buffer
-                        if buffer_data:
-                            await f.write(buffer_data)
-                    
-                    logger.info(f"✅ OPTIMIZED download complete: {get_readable_file_size(downloaded)}")
-                    return file_path
-                else:
-                    raise Exception(f"Download failed: HTTP {response.status}")
-                    
-        except Exception as e:
-            logger.error(f"❌ Single-connection download error: {e}")
-            raise e
-    
     async def download(self, url: str, progress_callback: Optional[Callable] = None, task_id: str = None) -> Optional[str]:
-        """🚀 ULTRA-HIGH-SPEED download with multi-connection support"""
+        """High-speed download - COMPATIBLE VERSION"""
         try:
-            logger.info(f"🚀 Starting ULTRA-HIGH-SPEED Terabox download: {url}")
+            logger.info(f"🚀 Starting HIGH-SPEED Terabox download: {url}")
             
             file_info = await self.extract_file_info(url)
             
@@ -320,12 +159,47 @@ class TeraboxDownloader:
             
             download_path = os.path.join('/tmp', filename)
             
-            # Try multi-connection first for maximum speed
-            try:
-                return await self.download_multi_connection(download_url, download_path, progress_callback, task_id)
-            except Exception as e:
-                logger.warning(f"⚠️ Multi-connection failed, trying optimized single: {e}")
-                return await self.download_single_connection(download_url, download_path, progress_callback, task_id)
+            # OPTIMIZED single connection download
+            session = await self.get_session()
+            logger.info(f"🚀 Starting OPTIMIZED high-speed download")
+            
+            async with session.get(download_url) as response:
+                if response.status == 200:
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
+                    
+                    logger.info(f"📦 File size: {get_readable_file_size(total_size)}")
+                    logger.info(f"⚡ Using {self.chunk_size // 1024}KB chunks for high speed")
+                    
+                    # Large buffer for maximum efficiency
+                    buffer_size = 512 * 1024  # 512KB buffer
+                    buffer_data = bytearray()
+                    
+                    async with aiofiles.open(download_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(self.chunk_size):
+                            buffer_data.extend(chunk)
+                            downloaded += len(chunk)
+                            
+                            # Write buffer when full for efficiency
+                            if len(buffer_data) >= buffer_size:
+                                await f.write(buffer_data)
+                                buffer_data.clear()
+                            
+                            # Progress callback
+                            if progress_callback and total_size > 0:
+                                try:
+                                    await progress_callback(downloaded, total_size, task_id)
+                                except:
+                                    pass
+                        
+                        # Write remaining buffer
+                        if buffer_data:
+                            await f.write(buffer_data)
+                    
+                    logger.info(f"✅ OPTIMIZED download complete: {get_readable_file_size(downloaded)}")
+                    return download_path
+                else:
+                    raise Exception(f"Download failed: HTTP {response.status}")
                 
         except Exception as e:
             logger.error(f"❌ Download error: {e}")
