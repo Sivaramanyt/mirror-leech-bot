@@ -180,7 +180,7 @@ class MirrorLeechBot:
         if not config.AUTHORIZED_CHATS_LIST and not config.SUDO_USERS_LIST:
             return True
         
-        return true
+        return True
         
     async def start_command(self, client: Client, message: Message):
         """Handle /start command"""
