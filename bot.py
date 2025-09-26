@@ -18,6 +18,7 @@ sys.path.append(str(current_dir))
 from pyrogram import Client, filters, idle
 from pyrogram.handlers import MessageHandler, CallbackQueryHandler
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.enums import ParseMode
 
 # Import configuration and modules
 import config
