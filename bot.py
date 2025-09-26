@@ -112,6 +112,7 @@ class MirrorLeechBot:
                         f"<b>Version:</b> 1.0\n"
                         f"<b>Database:</b> {'✅ Connected' if self.database else '❌ Not configured'}\n"
                         f"<b>GDrive:</b> {'✅ Enabled' if self.gdrive_handler else '❌ Not configured'}"
+                        parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
                     logger.error(f"Failed to send startup message: {e}")
