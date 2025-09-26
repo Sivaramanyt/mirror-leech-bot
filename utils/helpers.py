@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 import logging
+import aiohttp
 from typing import Union
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,29 @@ def extract_filename_from_url(url: str) -> str:
     except Exception:
         return f"download_{hash(url) % 10000}"
 
+async def get_file_size_from_url(url: str) -> int:
+    """Get file size from URL using HEAD request"""
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.head(url, allow_redirects=True) as response:
+                if response.status == 200:
+                    content_length = response.headers.get('content-length')
+                    if content_length:
+                        return int(content_length)
+                    else:
+                        # Fallback: try GET request with range
+                        async with session.get(url, headers={'Range': 'bytes=0-1'}) as get_response:
+                            content_range = get_response.headers.get('content-range')
+                            if content_range and '/' in content_range:
+                                total_size = content_range.split('/')[-1]
+                                if total_size.isdigit():
+                                    return int(total_size)
+                return 0
+    except Exception as e:
+        logger.error(f"Error getting file size from {url}: {e}")
+        return 0
+
 async def run_command(command: list, timeout: int = 300) -> tuple:
     """Run shell command asynchronously"""
     try:
@@ -107,4 +131,36 @@ def format_duration(seconds: int) -> str:
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60
         return f"{hours}h {minutes}m"
+
+def is_supported_file_type(filename: str) -> bool:
+    """Check if file type is supported"""
+    supported_extensions = {
+        # Video
+        '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp',
+        # Audio  
+        '.mp3', '.m4a', '.flac', '.wav', '.aac', '.ogg',
+        # Images
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
+        # Documents
+        '.pdf', '.doc', '.docx', '.txt', '.zip', '.rar', '.7z'
+    }
     
+    ext = os.path.splitext(filename)[1].lower()
+    return ext in supported_extensions
+
+def get_file_type(filename: str) -> str:
+    """Get file type category"""
+    video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp'}
+    audio_extensions = {'.mp3', '.m4a', '.flac', '.wav', '.aac', '.ogg'}
+    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+    
+    ext = os.path.splitext(filename)[1].lower()
+    
+    if ext in video_extensions:
+        return 'video'
+    elif ext in audio_extensions:
+        return 'audio'
+    elif ext in image_extensions:
+        return 'image'
+    else:
+        return 'document'
