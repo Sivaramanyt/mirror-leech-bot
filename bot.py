@@ -1,104 +1,80 @@
 import os
 import asyncio
 import logging
-from pyrogram import Client
+from pyrogram import Client, filters
 from aiohttp import web
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# MAXIMUM logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Get environment variables (try both naming conventions)
+# Config
 API_ID = int(os.environ.get("API_ID") or os.environ.get("TELEGRAM_API", "0"))
 API_HASH = os.environ.get("API_HASH") or os.environ.get("TELEGRAM_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-OWNER_ID = int(os.environ.get("OWNER_ID", "0"))
 
-logger.info(f"🔧 Config - API_ID: {API_ID}, Token: {BOT_TOKEN[:10]}...")
+logger.info(f"🔧 FULL CONFIG - API_ID: {API_ID}, API_HASH: {API_HASH[:10]}..., Token: {BOT_TOKEN}")
 
-# Health check for Koyeb
+# Health check
 async def health_check(request):
-    return web.json_response({"status": "healthy", "bot": "running"})
+    return web.json_response({"status": "healthy", "debug": "active"})
 
 async def start_health_server():
     app = web.Application()
     app.router.add_get('/', health_check)
-    app.router.add_get('/health', health_check)
-    
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", "8080")))
     await site.start()
-    logger.info(f"✅ Health server started on port {os.environ.get('PORT', '8080')}")
+    logger.info("✅ Health server started")
 
-# Bot instance
-app = Client("mirror_leech_test", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Bot
+app = Client("debug_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Test handlers
+# CATCH EVERYTHING
 @app.on_message()
-async def handle_any_message(client, message):
-    logger.info(f"🔥 MESSAGE: '{message.text}' from {message.from_user.id}")
+async def catch_all_messages(client, message):
+    logger.info(f"🔥🔥🔥 INCOMING MESSAGE DETECTED!")
+    logger.info(f"🔥🔥🔥 Text: {message.text}")
+    logger.info(f"🔥🔥🔥 From: {message.from_user.id} (@{message.from_user.username})")
+    logger.info(f"🔥🔥🔥 Chat: {message.chat.id}")
+    logger.info(f"🔥🔥🔥 Date: {message.date}")
     
     try:
-        if message.text and message.text.startswith('/start'):
-            await message.reply_text(
-                "🎉 **MIRROR-LEECH BOT IS WORKING!**\n\n"
-                "✅ Repository structure identified\n"
-                "✅ Environment variables loaded\n" 
-                "✅ Pyrogram handlers active\n\n"
-                "📋 **Available Commands:**\n"
-                "• `/start` - This message\n"
-                "• `/mirror [url]` - Mirror files\n"
-                "• `/leech [url]` - Leech files\n"
-                "• `/ping` - Test response\n\n"
-                "🚀 **Bot is fully operational!**"
-            )
-        elif message.text and message.text.startswith('/ping'):
-            await message.reply_text("🏓 **Pong!** Mirror-Leech Bot responding! ⚡")
-        elif message.text and message.text.startswith('/mirror'):
-            await message.reply_text("🪞 **Mirror function detected!** Ready to implement full mirror functionality.")
-        elif message.text and message.text.startswith('/leech'):
-            await message.reply_text("📥 **Leech function detected!** Ready to implement full leech functionality.")
-        else:
-            await message.reply_text(f"✅ **Message received:** {message.text}\n\n🤖 Bot is working perfectly!")
-        
-        logger.info("✅ Response sent successfully")
-        
+        response = f"🎉 MESSAGE RECEIVED!\n\nYou sent: {message.text}\nYour ID: {message.from_user.id}\nBot is ALIVE!"
+        await message.reply_text(response)
+        logger.info("🔥🔥🔥 RESPONSE SENT SUCCESSFULLY!")
     except Exception as e:
-        logger.error(f"❌ Handler error: {e}")
+        logger.error(f"❌ Response error: {e}")
+
+# SPECIFIC HANDLER FOR /start
+@app.on_message(filters.command("start"))
+async def start_handler(client, message):
+    logger.info(f"🚀🚀🚀 START COMMAND DETECTED!")
+    await message.reply_text("🎉 START COMMAND WORKS!")
 
 async def main():
     try:
-        logger.info("🚀 Starting Mirror-Leech Bot...")
+        logger.info("🚀 Starting NUCLEAR DEBUG bot...")
         
-        # Validate environment variables
-        if not API_ID or not API_HASH or not BOT_TOKEN:
-            logger.error("❌ Missing required environment variables")
-            logger.error(f"API_ID: {API_ID}, API_HASH: {'SET' if API_HASH else 'NOT SET'}, BOT_TOKEN: {'SET' if BOT_TOKEN else 'NOT SET'}")
-            return
-        
-        # Start health check server
         await start_health_server()
         
-        # Start bot
         await app.start()
         me = await app.get_me()
-        logger.info(f"🤖 Mirror-Leech Bot started: @{me.username} (ID: {me.id})")
-        logger.info("🎯 Bot is ready for mirror/leech operations!")
+        logger.info(f"🤖 BOT INFO: @{me.username} (ID: {me.id})")
+        logger.info(f"🤖 BOT NAME: {me.first_name}")
+        logger.info(f"🤖 BOT IS_BOT: {me.is_bot}")
         
-        # Keep running
+        logger.info("🔥🔥🔥 SEND ANY MESSAGE TO TEST!")
+        logger.info("🔥🔥🔥 BOT IS READY TO RECEIVE MESSAGES!")
+        
         await asyncio.Event().wait()
         
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("🛑 Bot stopped by user")
-    except Exception as e:
-        logger.error(f"❌ Startup error: {e}")
+    asyncio.run(main())
     
