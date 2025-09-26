@@ -1,18 +1,17 @@
 import os
 import asyncio
 from pyrogram import Client, filters
+from aiohttp import web
 
-# Direct environment variables - no config file needed
+# Environment variables
 bot = Client(
     "simple_bot",
-    api_id=int(os.environ.get("API_ID", os.environ.get("TELEGRAM_API", "0"))),
-    api_hash=os.environ.get("API_HASH", os.environ.get("TELEGRAM_HASH", "")),
+    api_id=int(os.environ.get("API_ID", "0")),
+    api_hash=os.environ.get("API_HASH", ""),
     bot_token=os.environ.get("BOT_TOKEN", "")
 )
 
-# Health check for Koyeb
-from aiohttp import web
-
+# Health check
 async def health(request):
     return web.json_response({"ok": True})
 
@@ -24,7 +23,7 @@ async def start_server():
     site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", "8080")))
     await site.start()
 
-# Bot handlers
+# Handlers
 @bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
     await message.reply("🎉 **BOT IS WORKING!** Send /ping to test!")
@@ -38,12 +37,14 @@ async def echo_all(client, message):
     if message.text and not message.text.startswith('/'):
         await message.reply(f"✅ I received: {message.text}")
 
-# Start everything
+# Main
 async def main():
     await start_server()
-    await bot.start()
-    print("Bot started!")
-    await asyncio.Event().wait()
+    print("✅ Health server started")
+    async with bot:
+        print("🤖 Bot started!")
+        await asyncio.Event().wait()   # keeps running
 
-# Run bot
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
+    
