@@ -36,10 +36,10 @@ A simplified but powerful Telegram bot for downloading and mirroring files from 
 
 3. **Set Environment Variables:**
 
-BOT_TOKEN=your_bot_token
-OWNER_ID=your_telegram_user_id
-TELEGRAM_API=your_api_id
-TELEGRAM_HASH=your_api_hash
+BOT_TOKEN=your_bot_token,
+OWNER_ID=your_telegram_user_id,
+TELEGRAM_API=your_api_id,
+TELEGRAM_HASH=your_api_hash,
 DATABASE_URL=your_mongodb_connection_string
 PORT=8000
 
