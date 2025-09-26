@@ -3,6 +3,7 @@ import asyncio
 import logging
 from pyrogram import Client
 from aiohttp import web
+import aiohttp
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -17,73 +18,78 @@ logger.info(f"🔧 Using token: {BOT_TOKEN[:15]}...")
 
 # Health check
 async def health(request):
-    return web.json_response({"status": "healthy", "timestamp": "2025-09-26"})
+    return web.json_response({"status": "healthy"})
 
 async def start_server():
     app = web.Application()
     app.router.add_get('/', health)
-    app.router.add_get('/health', health)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', 8080)
     await site.start()
-    logger.info("✅ Health server started on port 8080")
+    logger.info("✅ Health server started")
+
+async def delete_webhook():
+    """Delete any existing webhook that might be blocking messages"""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url) as response:
+                result = await response.json()
+                logger.info(f"🔧 Webhook deletion result: {result}")
+                
+        # Also try getWebhookInfo to see current status
+        info_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(info_url) as response:
+                info = await response.json()
+                logger.info(f"🔧 Current webhook info: {info}")
+                
+    except Exception as e:
+        logger.error(f"❌ Webhook deletion error: {e}")
 
 # Bot
-bot = Client("fresh_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = Client("clean_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Handler for ANY message
 @bot.on_message()
 async def handle_any_message(client, message):
-    logger.info(f"🔥 MESSAGE: '{message.text}' from @{message.from_user.username} ({message.from_user.id})")
+    logger.info(f"🔥🔥🔥 MESSAGE RECEIVED: '{message.text}' from {message.from_user.id}")
     
     try:
         if message.text and message.text.startswith('/start'):
-            response = (
-                "🎉 **FANTASTIC! NEW BOT IS WORKING!**\n\n"
-                "✅ Fresh bot created successfully\n"
-                "✅ Messages are being received\n"
-                "✅ Handlers are responding perfectly\n"
-                "✅ All systems operational\n\n"
-                "🚀 **Commands available:**\n"
-                "• `/start` - This message\n"
-                "• `/ping` - Test response\n"
-                "• `/test` - Another test\n"
-                "• Any text message works!\n\n"
-                "🎯 **Ready for Terabox downloads!**"
-            )
-        elif message.text and message.text.startswith('/ping'):
-            response = "🏓 **PONG!** New bot is alive and kicking! ⚡"
-        elif message.text and message.text.startswith('/test'):
-            response = "🧪 **TEST SUCCESSFUL!** Everything working perfectly! 🎯"
+            response = "🎉 **WEBHOOK DELETED! BOT IS NOW WORKING!** ✅"
         else:
-            response = f"👋 **Hello!** I received your message: '{message.text}'\n\n✅ Bot is working great!"
+            response = f"✅ Message received: {message.text}"
         
         await message.reply_text(response)
-        logger.info("✅ Response sent successfully!")
+        logger.info("🔥🔥🔥 RESPONSE SENT!")
         
     except Exception as e:
-        logger.error(f"❌ Handler error: {e}")
+        logger.error(f"❌ Response error: {e}")
 
 async def main():
     try:
-        logger.info("🚀 Starting FRESH bot...")
+        logger.info("🚀 Starting bot with webhook cleanup...")
         
         # Start health server
         await start_server()
         
+        # DELETE ANY EXISTING WEBHOOK FIRST
+        await delete_webhook()
+        logger.info("🔧 Webhook cleanup completed")
+        
         # Start bot
         await bot.start()
         me = await bot.get_me()
-        logger.info(f"🤖 NEW BOT READY: @{me.username} (ID: {me.id})")
-        logger.info(f"🎯 Bot name: {me.first_name}")
-        logger.info("✅ Send /start to test the new bot!")
+        logger.info(f"🤖 BOT: @{me.username} (Clean start)")
+        logger.info("🎯 Webhook deleted - bot should now receive messages!")
         
         # Keep running
         await asyncio.Event().wait()
         
     except Exception as e:
-        logger.error(f"❌ Startup error: {e}")
+        logger.error(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
