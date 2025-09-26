@@ -1,5 +1,3 @@
-# UPDATED downloaders/terabox.py - WITH DETAILED ERROR LOGGING
-
 import os
 import aiohttp
 import asyncio
@@ -19,12 +17,27 @@ class TeraboxDownloader:
     async def get_session(self):
         """Get or create aiohttp session"""
         if not self.session:
-            timeout = aiohttp.ClientTimeout(total=120)  # Increased timeout to 2 minutes
+            timeout = aiohttp.ClientTimeout(
+                total=600,      # 10 minutes total timeout
+                connect=30,     # 30 seconds to connect
+                sock_read=300   # 5 minutes to read response
+            )
             self.session = aiohttp.ClientSession(
                 headers={"User-Agent": self.user_agent},
                 timeout=timeout
             )
         return self.session
+    
+    def is_supported_domain(self, url: str) -> bool:
+        """Check if URL is from supported Terabox domains"""
+        supported_domains = [
+            "terabox.com", "nephobox.com", "4funbox.com", "mirrobox.com",
+            "momerybox.com", "teraboxapp.com", "1024tera.com", "terabox.app",
+            "gibibox.com", "goaibox.com", "terasharelink.com", "teraboxlink.com",
+            "freeterabox.com", "1024terabox.com", "teraboxshare.com", 
+            "terafileshare.com", "terabox.club"
+        ]
+        return any(domain in url for domain in supported_domains)
     
     async def extract_file_info(self, url: str) -> dict:
         """Extract file information from Terabox URL using official API"""
@@ -122,76 +135,122 @@ class TeraboxDownloader:
         ext = os.path.splitext(filename.lower())[1]
         return ext in video_extensions
     
+    def parse_file_size(self, size_str: str) -> int:
+        """Parse file size string to bytes"""
+        size_str = size_str.upper().replace(" ", "")
+        
+        if "KB" in size_str:
+            return int(float(size_str.replace("KB", "")) * 1024)
+        elif "MB" in size_str:
+            return int(float(size_str.replace("MB", "")) * 1024 * 1024)
+        elif "GB" in size_str:
+            return int(float(size_str.replace("GB", "")) * 1024 * 1024 * 1024)
+        elif "TB" in size_str:
+            return int(float(size_str.replace("TB", "")) * 1024 * 1024 * 1024 * 1024)
+        else:
+            return int(size_str.replace("B", "")) if size_str.replace("B", "").isdigit() else 0
+    
     async def download(self, url: str, progress_callback: Optional[Callable] = None, task_id: str = None) -> Optional[str]:
-        """Download file from Terabox URL"""
-        try:
-            logger.info(f"🚀 Starting Terabox download: {url}")
-            
-            # Get file information using official API method
-            file_info = await self.extract_file_info(url)
-            logger.info(f"📋 File info extracted: {file_info}")
-            
-            if "single_url" in file_info:
-                # Single file download
-                download_url = file_info["single_url"]
-                filename = file_info["filename"]
-                logger.info(f"📥 Single file download: {filename}")
-            else:
-                # Multiple files - download first one for now
-                if not file_info["contents"]:
-                    raise Exception("No files found in folder")
+        """Download file from Terabox URL with retry logic"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                logger.info(f"🚀 Starting Terabox download (attempt {retry_count + 1}): {url}")
                 
-                download_url = file_info["contents"][0]["url"]
-                filename = file_info["contents"][0]["filename"]
-                logger.info(f"📥 Multiple files, downloading first: {filename}")
-            
-            if not download_url:
-                raise Exception("No download URL found in API response")
+                # Validate URL
+                if not self.is_supported_domain(url):
+                    raise Exception("Unsupported Terabox domain")
                 
-            # Ensure filename has extension
-            if not os.path.splitext(filename)[1]:
-                filename += '.mp4'
-            
-            # Create download path
-            download_path = os.path.join('/tmp', filename)
-            logger.info(f"💾 Download path: {download_path}")
-            
-            # Download the file
-            session = await self.get_session()
-            logger.info(f"🌐 Starting download from: {download_url[:100]}...")
-            
-            async with session.get(download_url) as response:
-                logger.info(f"📊 Download response status: {response.status}")
+                # Get file information using official API method
+                file_info = await self.extract_file_info(url)
+                logger.info(f"📋 File info extracted: {file_info}")
                 
-                if response.status == 200:
-                    total_size = int(response.headers.get('content-length', 0))
-                    downloaded = 0
-                    
-                    logger.info(f"📦 File size: {get_readable_file_size(total_size)}")
-                    
-                    with open(download_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # Progress callback
-                            if progress_callback and total_size > 0:
-                                try:
-                                    await progress_callback(downloaded, total_size, task_id)
-                                except Exception as pe:
-                                    logger.warning(f"Progress callback error: {pe}")
-                    
-                    logger.info(f"✅ Downloaded: {filename} ({get_readable_file_size(downloaded)})")
-                    return download_path
+                if "single_url" in file_info:
+                    # Single file download
+                    download_url = file_info["single_url"]
+                    filename = file_info["filename"]
+                    logger.info(f"📥 Single file download: {filename}")
                 else:
-                    error_text = await response.text()
-                    logger.error(f"❌ Download failed: HTTP {response.status} - {error_text}")
-                    raise Exception(f"Download failed: HTTP {response.status} - {error_text}")
+                    # Multiple files - download first one for now
+                    if not file_info["contents"]:
+                        raise Exception("No files found in folder")
                     
-        except Exception as e:
-            logger.error(f"❌ Terabox download error: {str(e)}")
-            logger.error(f"❌ Error type: {type(e).__name__}")
-            raise Exception(f"Download failed: {str(e)}")
+                    download_url = file_info["contents"][0]["url"]
+                    filename = file_info["contents"][0]["filename"]
+                    logger.info(f"📥 Multiple files, downloading first: {filename}")
+                
+                if not download_url:
+                    raise Exception("No download URL found in API response")
+                    
+                # Ensure filename has extension
+                if not os.path.splitext(filename)[1]:
+                    filename += '.mp4'
+                
+                # Create download path
+                download_path = os.path.join('/tmp', filename)
+                logger.info(f"💾 Download path: {download_path}")
+                
+                # Download the file with retry logic
+                session = await self.get_session()
+                logger.info(f"🌐 Starting download from: {download_url[:100]}...")
+                
+                async with session.get(download_url) as response:
+                    logger.info(f"📊 Download response status: {response.status}")
+                    
+                    if response.status == 200:
+                        total_size = int(response.headers.get('content-length', 0))
+                        downloaded = 0
+                        
+                        logger.info(f"📦 File size: {get_readable_file_size(total_size)}")
+                        
+                        with open(download_path, 'wb') as f:
+                            async for chunk in response.content.iter_chunked(8192):
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                
+                                # Progress callback
+                                if progress_callback and total_size > 0:
+                                    try:
+                                        await progress_callback(downloaded, total_size, task_id)
+                                    except Exception as pe:
+                                        logger.warning(f"Progress callback error: {pe}")
+                        
+                        logger.info(f"✅ Downloaded: {filename} ({get_readable_file_size(downloaded)})")
+                        return download_path
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Download failed: HTTP {response.status} - {error_text}")
+                        if retry_count < max_retries - 1:
+                            retry_count += 1
+                            logger.info(f"🔄 HTTP Error - Retrying in 5 seconds... (attempt {retry_count + 1}/{max_retries})")
+                            await asyncio.sleep(5)
+                            continue
+                        else:
+                            raise Exception(f"Download failed: HTTP {response.status} - {error_text}")
+                            
+            except asyncio.TimeoutError as e:
+                if retry_count < max_retries - 1:
+                    retry_count += 1
+                    logger.warning(f"⏰ Download timeout, retrying in 10 seconds... (attempt {retry_count + 1}/{max_retries})")
+                    await asyncio.sleep(10)
+                    continue
+                else:
+                    logger.error(f"❌ Final timeout after {max_retries} attempts: {str(e)}")
+                    raise Exception(f"Download timeout after {max_retries} attempts: {str(e)}")
+            except Exception as e:
+                if retry_count < max_retries - 1:
+                    retry_count += 1
+                    logger.warning(f"❌ Download error, retrying in 5 seconds... (attempt {retry_count + 1}/{max_retries}): {str(e)}")
+                    await asyncio.sleep(5)
+                    continue
+                else:
+                    logger.error(f"❌ Terabox download error: {str(e)}")
+                    logger.error(f"❌ Error type: {type(e).__name__}")
+                    raise Exception(f"Download failed: {str(e)}")
+        
+        raise Exception("Download failed after maximum retries")
     
     async def close(self):
         """Close the session"""
