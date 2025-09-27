@@ -18,7 +18,6 @@ class VerificationSystem:
         self.IS_VERIFY = os.environ.get("IS_VERIFY", "True")
         self.TUT_VID = os.environ.get("TUT_VID", "")
         self.FREE_DOWNLOAD_LIMIT = int(os.environ.get("FREE_DOWNLOAD_LIMIT", 3))
-        self.ADMIN_IDS = [int(x.strip()) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
         
         # Storage files
         self.users_file = "/tmp/users.json"
@@ -62,11 +61,11 @@ class VerificationSystem:
         
         return users[user_key]["downloads"]
 
-    def needs_verification(self, user_id: int, download_count: int) -> bool:
-        """Check if user needs verification"""
+    def needs_verification(self, download_count: int) -> bool:
+        """Check if verification is needed"""
         if self.IS_VERIFY.lower() != "true":
             return False
-        return download_count > self.FREE_DOWNLOAD_LIMIT
+        return download_count >= self.FREE_DOWNLOAD_LIMIT
 
     async def create_token(self, user_id: int, url: str) -> str:
         """Create verification token"""
@@ -140,3 +139,4 @@ class VerificationSystem:
 
 # Global instance
 verification = VerificationSystem()
+        
