@@ -140,7 +140,7 @@ Use any command above or just send a supported URL directly!
 
 **Or just send the URL directly - no command needed!**
 
-⚡ **Lightning-fast downloads with real file delivery!** 🔥
+⚡ **Lightning-fast downloads with smart media handling!** 🔥
         """
         await message.reply_text(help_text)
 
@@ -151,7 +151,7 @@ Use any command above or just send a supported URL directly!
 📊 **TERABOX LEECH BOT - STATUS REPORT**
 
 ✅ **Bot Status:** Online & Operational
-🤖 **Bot Version:** 2.1.0 with Real Downloads
+🤖 **Bot Version:** 2.2.0 with Smart Media Upload
 🌐 **Platform:** Python/Pyrogram
 ⚡ **Performance:** Optimal
 🔧 **Health Server:** Running on port 8080
@@ -159,31 +159,32 @@ Use any command above or just send a supported URL directly!
 📈 **Download System:**
 • **API Status:** ✅ Operational
 • **Download Engine:** ✅ Active
-• **Upload System:** ✅ Ready
+• **Smart Media Upload:** ✅ Ready
 • **File Processing:** ✅ Working
 • **Success Rate:** 99%+ uptime
 
 🔗 **Platform Support:**
 • **Terabox Family:** Full API integration
 • **File Download:** Real file downloads
-• **Telegram Upload:** Auto file delivery
+• **Smart Upload:** Video/Audio/Photo/Document detection
 • **Progress Tracking:** Real-time updates
 
-📤 **Upload Features:**
-• **Telegram Upload:** Actual file delivery
-• **File Size Limit:** No limit (splits at 2GB)
-• **Format Support:** All file types
-• **Speed Optimization:** Multi-connection downloads
+📤 **Smart Upload Features:**
+• **🎥 Video Media:** .mp4, .avi, .mkv, .mov, .wmv, .flv, .webm
+• **🎵 Audio Media:** .mp3, .wav, .flac, .aac, .m4a, .ogg
+• **🖼️ Photo Media:** .jpg, .jpeg, .png, .gif, .webp, .bmp
+• **📄 Documents:** All other file types
+• **Streaming Support:** Videos support inline playback
 
-🚀 **All systems operational - Ready for real downloads!**
+🚀 **All systems operational - Ready for smart media downloads!**
 
-Use `/leech [url]` to download and receive actual files.
+Use `/leech [url]` to download and receive files in optimal format.
         """
         await message.reply_text(status_text)
 
     @app.on_message(filters.command("leech"))
     async def leech_command(client, message: Message):
-        """Real Terabox leech with actual download and upload"""
+        """Real Terabox leech with smart media upload"""
         try:
             user_id = message.from_user.id
             
@@ -196,6 +197,7 @@ Use `/leech [url]` to download and receive actual files.
                     "• `/leech https://terasharelink.com/s/xyz789`\n"
                     "• `/leech https://nephobox.com/s/example123`\n\n"
                     "🔗 **Supported:** All 10+ Terabox variants\n"
+                    "📱 **Smart Upload:** Videos as media, audio as audio, photos as photos\n"
                     "💡 **Tip:** You can also send URLs directly!"
                 )
                 return
@@ -313,16 +315,42 @@ Use `/leech [url]` to download and receive actual files.
                         f"📤 **Uploading to Telegram...**\n\n"
                         f"📁 **File:** {filename}\n"
                         f"📊 **Size:** {file_size_mb:.1f} MB\n"
-                        f"🚀 **Status:** Uploading..."
+                        f"🚀 **Status:** Uploading as smart media..."
                     )
                     
-                    # Upload to Telegram
+                    # Smart upload based on file type
                     try:
-                        await message.reply_document(
-                            document=download_path,
-                            caption=f"📁 **{filename}**\n\n🔗 **Source:** Terabox\n📊 **Size:** {file_size_mb:.1f} MB\n⚡ **Downloaded by:** @Terabox_leech_pro_bot",
-                            reply_to_message_id=message.id
-                        )
+                        file_extension = filename.lower().split('.')[-1] if '.' in filename else ''
+                        
+                        # Video files - send as video media
+                        if file_extension in ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'm4v', 'f4v', 'asf']:
+                            await message.reply_video(
+                                video=download_path,
+                                caption=f"🎥 **{filename}**\n\n🔗 **Source:** Terabox\n📊 **Size:** {file_size_mb:.1f} MB\n⚡ **Bot:** @Terabox_leech_pro_bot",
+                                reply_to_message_id=message.id,
+                                supports_streaming=True
+                            )
+                        # Audio files - send as audio media  
+                        elif file_extension in ['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg', 'wma', 'opus', 'mka']:
+                            await message.reply_audio(
+                                audio=download_path,
+                                caption=f"🎵 **{filename}**\n\n🔗 **Source:** Terabox\n📊 **Size:** {file_size_mb:.1f} MB\n⚡ **Bot:** @Terabox_leech_pro_bot",
+                                reply_to_message_id=message.id
+                            )
+                        # Photo files - send as photo media
+                        elif file_extension in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg']:
+                            await message.reply_photo(
+                                photo=download_path,
+                                caption=f"🖼️ **{filename}**\n\n🔗 **Source:** Terabox\n📊 **Size:** {file_size_mb:.1f} MB\n⚡ **Bot:** @Terabox_leech_pro_bot",
+                                reply_to_message_id=message.id
+                            )
+                        # All other files - send as document
+                        else:
+                            await message.reply_document(
+                                document=download_path,
+                                caption=f"📄 **{filename}**\n\n🔗 **Source:** Terabox\n📊 **Size:** {file_size_mb:.1f} MB\n⚡ **Bot:** @Terabox_leech_pro_bot",
+                                reply_to_message_id=message.id
+                            )
                         
                         await status_msg.edit_text("✅ **Upload Complete!** 🎉")
                         
@@ -380,7 +408,11 @@ Use `/leech [url]` to download and receive actual files.
                     "**Examples:**\n"
                     "• `/mirror https://terabox.com/s/abc123`\n"
                     "• `/mirror https://terasharelink.com/s/xyz789`\n\n"
-                    "⚡ **Mirror = Download + Upload to Telegram**\n"
+                    "⚡ **Mirror = Download + Upload with Smart Media Detection**\n"
+                    f"🎥 **Videos:** Sent as video media with streaming\n"
+                    f"🎵 **Audio:** Sent as audio media with player\n"
+                    f"🖼️ **Photos:** Sent as photo media gallery\n"
+                    f"📄 **Others:** Sent as documents\n"
                     "🔗 **Supported:** All Terabox variants"
                 )
                 return
@@ -399,7 +431,7 @@ Use `/leech [url]` to download and receive actual files.
             await message.reply_text(
                 f"🔄 **Mirror Mode Activated**\n\n"
                 f"📎 **URL:** `{url[:50]}{'...' if len(url) > 50 else ''}`\n\n"
-                f"🚀 **Processing as leech command...**"
+                f"🚀 **Processing with smart media upload...**"
             )
             
             # Call leech functionality
@@ -415,15 +447,21 @@ Use `/leech [url]` to download and receive actual files.
         about_text = """
 🤖 **LIGHTNING-FAST TERABOX LEECH BOT**
 
-🔥 **Professional downloader with real file delivery**
+🔥 **Professional downloader with smart media handling**
 
 ⚡ **Core Features:**
 • **Full Terabox Support:** All 10+ variants with real API
-• **Actual Downloads:** Real file downloads and delivery
-• **Lightning-Fast Speed:** Optimized multi-connection
+• **Smart Media Upload:** Videos as media, audio as audio, photos as photos
+• **Lightning-Fast Speed:** Optimized multi-connection downloads
 • **File Management:** Auto splitting for large files (2GB+)
 • **Progress Tracking:** Real-time download/upload status
 • **Professional Error Handling:** Comprehensive error recovery
+
+🎯 **Smart Media Detection:**
+• **🎥 Video Media:** .mp4, .avi, .mkv, .mov, .wmv, .flv, .webm
+• **🎵 Audio Media:** .mp3, .wav, .flac, .aac, .m4a, .ogg
+• **🖼️ Photo Media:** .jpg, .jpeg, .png, .gif, .webp, .bmp
+• **📄 Document:** All other file types (.zip, .pdf, .txt, etc.)
 
 🛠️ **Technology Stack:**
 • **Language:** Python 3.11 with advanced asyncio
@@ -431,16 +469,17 @@ Use `/leech [url]` to download and receive actual files.
 • **API Integration:** Real Terabox API connectivity
 • **File System:** Advanced download and upload engine
 • **Performance:** Multi-threaded, async processing
+• **Media Handling:** Smart file type detection and optimal upload
 
 📊 **Performance Metrics:**
 • **Success Rate:** 99%+ reliability
 • **Download Speed:** Multi-connection optimization
-• **File Support:** All formats, auto-splitting
+• **Smart Upload:** Optimal media format for each file type
 • **Concurrent Users:** Enterprise-grade scaling
-• **Error Recovery:** Advanced retry logic
+• **Error Recovery:** Advanced retry logic with exponential backoff
 
 🌟 **What Makes This Bot Special:**
-• **Real File Delivery** - Actually downloads and sends files
+• **Smart Media Delivery** - Videos as streamable media, audio with player
 • **Professional Grade** - Enterprise reliability
 • **No registration** required for users
 • **Completely free** forever
@@ -450,11 +489,11 @@ Use `/leech [url]` to download and receive actual files.
 • **Multi-platform support**
 
 💻 **Advanced Features:**
-Built with modern async Python, real file download engine, optimized for cloud deployment, and designed for maximum performance and reliability.
+Built with modern async Python, real file download engine, smart media type detection, optimized for cloud deployment, and designed for maximum performance and reliability.
 
-🎯 **Ready to download and deliver files from all Terabox platforms!**
+🎯 **Ready to download and deliver files with smart media handling!**
 
-**Version:** 2.1.0 with Real Downloads | **Status:** ✅ Online & Operational
+**Version:** 2.2.0 Smart Media | **Status:** ✅ Online & Operational
         """
         
         keyboard = [
@@ -474,14 +513,19 @@ Built with modern async Python, real file download engine, optimized for cloud d
         
         if not validators.url(url):
             await message.reply_text(
-                "👋 **Hello! I'm your Terabox Leech Bot**\n\n"
+                "👋 **Hello! I'm your Smart Terabox Leech Bot**\n\n"
                 "🔗 **Send me a Terabox URL** to download:\n"
                 "• All Terabox variants supported\n"
-                "• Real file downloads and delivery\n"
+                "• Smart media upload (video/audio/photo/document)\n"
                 "• Lightning-fast processing\n\n"
                 "📋 **Commands:**\n"
-                "• `/leech [url]` - Download file\n"
+                "• `/leech [url]` - Download file with smart upload\n"
                 "• `/help` - Full help & supported sites\n\n"
+                "📱 **Smart Upload Features:**\n"
+                "• 🎥 Videos → Video media with streaming\n"
+                "• 🎵 Audio → Audio media with player\n"
+                "• 🖼️ Photos → Photo media gallery\n"
+                "• 📄 Others → Document format\n\n"
                 "💡 **Or just send any Terabox URL directly!**"
             )
             return
@@ -497,7 +541,7 @@ Built with modern async Python, real file download engine, optimized for cloud d
         
         if is_supported:
             # Process as leech command
-            await message.reply_text("🔗 **Direct Terabox URL Detected!**\n\n⚡ **Processing download...**")
+            await message.reply_text("🔗 **Direct Terabox URL Detected!**\n\n⚡ **Processing with smart media upload...**")
             
             # Create a fake message object for leech processing
             fake_message = message
@@ -511,8 +555,9 @@ Built with modern async Python, real file download engine, optimized for cloud d
                 f"• terabox.com, terasharelink.com\n"
                 f"• nephobox.com, 4funbox.com\n"
                 f"• mirrobox.com, and 5 more variants\n\n"
-                f"Use `/help` to see all supported platforms."
+                f"Use `/help` to see all supported platforms.\n\n"
+                f"📱 **Smart Upload:** Videos as media, audio as audio, photos as photos!"
             )
     
-    logger.info("✅ All enhanced command handlers with real downloads setup complete")
-
+    logger.info("✅ All enhanced command handlers with smart media upload setup complete")
+        
