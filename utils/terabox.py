@@ -13,7 +13,7 @@ def sanitize_filename(filename: str) -> str:
     invalid_chars = '<>:"/\\|?*'
     for char in invalid_chars:
         filename = filename.replace(char, '_')
-    return filename[:250]  # Limit length
+    return filename[:250]
 
 def get_readable_file_size(size_bytes: int) -> str:
     """Convert bytes to readable format"""
@@ -33,7 +33,7 @@ class TeraboxDownloader:
         self.session = None
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
         self.api_url = "https://wdzone-terabox-api.vercel.app/api"
-        self.chunk_size = 128 * 1024  # 128KB chunks
+        self.chunk_size = 512 * 1024  # 512KB chunks
 
     async def get_session(self):
         """Get or create aiohttp session"""
@@ -93,7 +93,6 @@ class TeraboxDownloader:
                 extracted_info = req["📜 Extracted Info"]
                 logger.info(f"📊 Found {len(extracted_info)} files")
                 
-                # Process first file
                 if extracted_info:
                     data = extracted_info[0]
                     filename = data.get("📂 Title", "terabox_file")
@@ -160,8 +159,8 @@ class TeraboxDownloader:
                             await f.write(chunk)
                             downloaded += len(chunk)
                             
-                            # Progress callback every MB
-                            if progress_callback and total_size > 0 and downloaded % (1024 * 1024) == 0:
+                            # Progress callback every 5MB
+                            if progress_callback and total_size > 0 and downloaded % (5 * 1024 * 1024) < self.chunk_size:
                                 try:
                                     await progress_callback(downloaded, total_size)
                                 except Exception as pe:
@@ -185,3 +184,4 @@ class TeraboxDownloader:
 
 # Global instance
 terabox_downloader = TeraboxDownloader()
+            
