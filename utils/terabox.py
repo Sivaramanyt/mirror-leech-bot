@@ -7,6 +7,7 @@ import aiofiles
 import logging
 from typing import Optional, Callable
 from urllib.parse import parse_qs, urlparse, unquote
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +100,91 @@ class TeraboxDownloader:
             logger.error(f"Error extracting surl: {e}")
             return None
 
+    async def extract_data_from_html(self, html_content: str) -> Optional[dict]:
+        """Extract data from HTML with multiple methods"""
+        try:
+            # Method 1: Look for window.yunData or similar
+            data_patterns = [
+                r'window\.yunData\s*=\s*({.+?});',
+                r'yunData\s*=\s*({.+?});',
+                r'window\.globalData\s*=\s*({.+?});',
+                r'globalData\s*=\s*({.+?});',
+                r'window\.pageInfo\s*=\s*({.+?});',
+                r'pageInfo\s*=\s*({.+?});'
+            ]
+            
+            for pattern in data_patterns:
+                matches = re.finditer(pattern, html_content, re.DOTALL)
+                for match in matches:
+                    try:
+                        data = json.loads(match.group(1))
+                        if self.validate_extracted_data(data):
+                            logger.info("✅ Successfully extracted data (Method 1)")
+                            return data
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Method 2: Look for specific file data patterns
+            file_patterns = [
+                r'"server_filename":\s*"([^"]+)"[^}]*"fs_id":\s*(\d+)[^}]*"size":\s*(\d+)',
+                r'"filename":\s*"([^"]+)"[^}]*"fs_id":\s*(\d+)[^}]*"size":\s*(\d+)',
+            ]
+            
+            for pattern in file_patterns:
+                match = re.search(pattern, html_content)
+                if match:
+                    filename = match.group(1)
+                    fs_id = match.group(2)
+                    size = int(match.group(3))
+                    
+                    logger.info("✅ Successfully extracted data (Method 2)")
+                    return {
+                        'file_list': [{
+                            'server_filename': filename,
+                            'fs_id': fs_id,
+                            'size': size
+                        }]
+                    }
+            
+            # Method 3: Look for any JSON-like structures with file info
+            json_blocks = re.finditer(r'({[^{}]*(?:{[^{}]*}[^{}]*)*})', html_content)
+            for match in json_blocks:
+                try:
+                    data = json.loads(match.group(1))
+                    if self.validate_extracted_data(data):
+                        logger.info("✅ Successfully extracted data (Method 3)")
+                        return data
+                except json.JSONDecodeError:
+                    continue
+            
+            logger.warning("Could not extract data using any method")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error extracting data from HTML: {e}")
+            return None
+
+    def validate_extracted_data(self, data: dict) -> bool:
+        """Validate if extracted data contains file information"""
+        try:
+            # Check for file_list or similar structures
+            if 'file_list' in data and isinstance(data['file_list'], list):
+                return len(data['file_list']) > 0
+            
+            if 'list' in data and isinstance(data['list'], list):
+                return len(data['list']) > 0
+            
+            # Check for direct file info
+            required_keys = ['server_filename', 'fs_id', 'size']
+            if any(key in data for key in required_keys):
+                return True
+            
+            return False
+        except:
+            return False
+
     async def get_file_info(self, surl: str) -> dict:
-        """Get file information using surl - ANASTY17 method"""
+        """Get file information using surl - Enhanced method"""
         try:
             session = await self.get_session()
             
@@ -116,37 +200,18 @@ class TeraboxDownloader:
                 
                 html_content = await response.text()
                 
-            # Step 2: Extract essential data from HTML
-            # Look for window.yunData or similar data structures
-            data_patterns = [
-                r'window\.yunData\s*=\s*({.+?});',
-                r'yunData\s*=\s*({.+?});',
-                r'window\.globalData\s*=\s*({.+?});',
-                r'globalData\s*=\s*({.+?});'
-            ]
-            
-            extracted_data = None
-            for pattern in data_patterns:
-                match = re.search(pattern, html_content, re.DOTALL)
-                if match:
-                    try:
-                        extracted_data = json.loads(match.group(1))
-                        logger.info("✅ Successfully extracted page data")
-                        break
-                    except json.JSONDecodeError:
-                        continue
+            # Step 2: Extract data from HTML
+            extracted_data = await self.extract_data_from_html(html_content)
             
             if not extracted_data:
-                logger.error("Could not extract data from share page")
-                return {"success": False, "error": "Could not extract page data"}
+                logger.info("🔄 HTML extraction failed, trying fallback APIs...")
+                return await self.get_file_info_fallback(surl)
             
-            # Step 3: Extract file information
+            # Step 3: Process extracted data
             file_list = []
             
-            # Common data structures in Terabox
-            possible_keys = ['file_list', 'list', 'items', 'data']
-            
-            for key in possible_keys:
+            # Check various possible locations for file list
+            for key in ['file_list', 'list', 'items', 'data']:
                 if key in extracted_data:
                     if isinstance(extracted_data[key], list):
                         file_list = extracted_data[key]
@@ -155,25 +220,29 @@ class TeraboxDownloader:
                         file_list = extracted_data[key]['list']
                         break
             
+            # If no file list found, check if data itself is file info
+            if not file_list and self.validate_extracted_data(extracted_data):
+                file_list = [extracted_data]
+            
             if not file_list:
                 logger.error("No files found in extracted data")
-                return {"success": False, "error": "No files found"}
+                return await self.get_file_info_fallback(surl)
             
             # Process first file
             file_item = file_list[0]
             
             filename = file_item.get('server_filename', file_item.get('filename', 'terabox_file'))
             file_size = int(file_item.get('size', 0))
-            fs_id = file_item.get('fs_id', '')
+            fs_id = str(file_item.get('fs_id', ''))
             
             logger.info(f"✅ File found: {filename} ({get_readable_file_size(file_size)})")
             
-            # Step 4: Get download link using fs_id
+            # Step 4: Get download link
             download_url = await self.get_download_link(surl, fs_id, extracted_data)
             
             if not download_url:
-                logger.error("Could not get download link")
-                return {"success": False, "error": "Could not get download link"}
+                logger.info("🔄 Direct method failed, trying fallback APIs...")
+                return await self.get_file_info_fallback(surl)
             
             return {
                 "success": True,
@@ -185,11 +254,70 @@ class TeraboxDownloader:
             
         except Exception as e:
             logger.error(f"Error getting file info: {e}")
+            return await self.get_file_info_fallback(surl)
+
+    async def get_file_info_fallback(self, surl: str) -> dict:
+        """Fallback method using working APIs"""
+        try:
+            api_endpoints = [
+                f"https://wdzone-terabox-api.vercel.app/api?url=https://terabox.com/s/{surl}",
+                f"https://terabox-downloader-ten.vercel.app/api?url=https://terabox.com/s/{surl}",
+                f"https://terabox-dl.qtcloud.workers.dev/api?url=https://terabox.com/s/{surl}",
+                f"https://teraboxdl.xcodee.workers.dev/api?url=https://terabox.com/s/{surl}"
+            ]
+            
+            session = await self.get_session()
+            
+            for api_url in api_endpoints:
+                try:
+                    logger.info(f"🔄 Trying fallback API: {api_url.split('//')[1].split('/')[0]}")
+                    
+                    async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            
+                            if "📜 Extracted Info" in result:
+                                extracted_info = result["📜 Extracted Info"]
+                                if extracted_info and len(extracted_info) > 0:
+                                    data = extracted_info[0]
+                                    filename = data.get("📂 Title", "terabox_file")
+                                    download_url = data.get("🔽 Direct Download Link", "")
+                                    
+                                    if download_url:
+                                        if not os.path.splitext(filename)[1]:
+                                            filename += ".mp4"
+                                        
+                                        logger.info("✅ Got file info from fallback API")
+                                        return {
+                                            "success": True,
+                                            "filename": sanitize_filename(filename),
+                                            "download_url": download_url,
+                                            "file_size": 0,
+                                            "fs_id": ""
+                                        }
+                        else:
+                            logger.warning(f"API returned {response.status}")
+                            
+                except asyncio.TimeoutError:
+                    logger.warning("API timeout")
+                    continue
+                except Exception as e:
+                    logger.warning(f"API error: {e}")
+                    continue
+            
+            logger.error("All fallback methods failed")
+            return {"success": False, "error": "All extraction methods failed"}
+            
+        except Exception as e:
+            logger.error(f"Fallback method error: {e}")
             return {"success": False, "error": str(e)}
 
     async def get_download_link(self, surl: str, fs_id: str, page_data: dict) -> Optional[str]:
-        """Get direct download link - ANASTY17 method"""
+        """Get direct download link"""
         try:
+            if not fs_id:
+                return None
+                
             session = await self.get_session()
             
             # Extract necessary tokens from page data
@@ -205,81 +333,33 @@ class TeraboxDownloader:
                 'web': '1',
                 'channel': 'chunlei',
                 'clienttype': '0',
-                'sign': '',  # Usually calculated dynamically
-                'timestamp': '',  # Current timestamp
                 'fidlist': f'[{fs_id}]',
                 'type': 'dlink',
-                'vip': '0',
-                'bdstoken': bdstoken,
-                'logid': logid
+                'vip': '0'
             }
+            
+            if bdstoken:
+                params['bdstoken'] = bdstoken
+            if logid:
+                params['logid'] = logid
             
             logger.info("🔗 Requesting download link...")
             
             async with session.get(download_api, params=params) as response:
-                if response.status != 200:
-                    logger.warning(f"Download API returned {response.status}")
-                    # Try alternative method
-                    return await self.get_alternative_download_link(surl, fs_id)
-                
-                result = await response.json()
-                
-                if result.get('errno') == 0 and 'dlink' in result:
-                    dlink_list = result['dlink']
-                    if dlink_list:
-                        download_url = dlink_list[0]['dlink']
-                        logger.info("✅ Got download link from API")
-                        return download_url
-            
-            # Fallback method
-            return await self.get_alternative_download_link(surl, fs_id)
-            
-        except Exception as e:
-            logger.error(f"Error getting download link: {e}")
-            return await self.get_alternative_download_link(surl, fs_id)
-
-    async def get_alternative_download_link(self, surl: str, fs_id: str) -> Optional[str]:
-        """Alternative method to get download link"""
-        try:
-            # Use the working API endpoints
-            api_endpoints = [
-                f"https://wdzone-terabox-api.vercel.app/api?url=https://terabox.com/s/{surl}",
-                f"https://terabox-downloader-ten.vercel.app/api?url=https://terabox.com/s/{surl}",
-                f"https://terabox-dl.qtcloud.workers.dev/api?url=https://terabox.com/s/{surl}",
-            ]
-            
-            session = await self.get_session()
-            
-            for api_url in api_endpoints:
-                try:
-                    logger.info(f"🔄 Trying API: {api_url.split('//')[1].split('/')[0]}")
+                if response.status == 200:
+                    result = await response.json()
                     
-                    async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                        if response.status == 200:
-                            result = await response.json()
-                            
-                            if "📜 Extracted Info" in result:
-                                extracted_info = result["📜 Extracted Info"]
-                                if extracted_info and len(extracted_info) > 0:
-                                    download_url = extracted_info[0].get("🔽 Direct Download Link", "")
-                                    if download_url:
-                                        logger.info("✅ Got download link from alternative API")
-                                        return download_url
-                        else:
-                            logger.warning(f"API returned {response.status}")
-                            
-                except asyncio.TimeoutError:
-                    logger.warning("API timeout")
-                    continue
-                except Exception as e:
-                    logger.warning(f"API error: {e}")
-                    continue
+                    if result.get('errno') == 0 and 'dlink' in result:
+                        dlink_list = result['dlink']
+                        if dlink_list:
+                            download_url = dlink_list[0]['dlink']
+                            logger.info("✅ Got download link from API")
+                            return download_url
             
-            logger.error("All alternative methods failed")
             return None
             
         except Exception as e:
-            logger.error(f"Alternative method error: {e}")
+            logger.error(f"Error getting download link: {e}")
             return None
 
     async def download_with_resume(self, download_url: str, filename: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
@@ -351,9 +431,9 @@ class TeraboxDownloader:
             return None
 
     async def download_file(self, url: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """Main download method - ANASTY17 inspired"""
+        """Main download method - Enhanced anasty17 approach"""
         try:
-            logger.info(f"🎯 ANASTY17-METHOD DOWNLOAD: {url[:50]}...")
+            logger.info(f"🎯 ENHANCED ANASTY17-METHOD: {url[:50]}...")
             
             # Extract surl from URL
             surl = await self.extract_surl_from_url(url)
@@ -376,7 +456,7 @@ class TeraboxDownloader:
             return await self.download_with_resume(download_url, filename, progress_callback)
             
         except Exception as e:
-            logger.error(f"ANASTY17-method download error: {e}")
+            logger.error(f"Enhanced anasty17-method download error: {e}")
             return None
 
     # Compatibility methods for existing code
@@ -396,4 +476,3 @@ class TeraboxDownloader:
 
 # Global instance
 terabox_downloader = TeraboxDownloader()
-                
