@@ -1,7 +1,4 @@
-# Core essentials only
 pyrogram==2.0.106
 TgCrypto==1.2.5
 aiohttp==3.8.6
-requests==2.31.0
 validators==0.22.0
-python-dotenv==1.0.0
