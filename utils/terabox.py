@@ -5,6 +5,8 @@ import logging
 from typing import Optional, Callable
 from urllib.parse import quote
 import aiofiles
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -33,29 +35,29 @@ class TeraboxDownloader:
         self.session = None
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
         self.api_url = "https://wdzone-terabox-api.vercel.app/api"
-        # SPEED OPTIMIZED: Much larger chunks for faster downloads
-        self.chunk_size = 8 * 1024 * 1024  # 8MB chunks (8x larger!)
+        # MAXIMUM SPEED: Huge chunks for parallel download
+        self.chunk_size = 16 * 1024 * 1024  # 16MB chunks (2x larger!)
+        self.max_parallel_chunks = 4  # Download 4 chunks simultaneously
 
     async def get_session(self):
-        """Get or create HIGH-SPEED aiohttp session"""
+        """Get HIGH-PERFORMANCE session with maximum connections"""
         if not self.session:
-            # SPEED OPTIMIZED: More aggressive connection settings
+            # MAXIMUM PERFORMANCE: Aggressive connection settings
             connector = aiohttp.TCPConnector(
-                limit=50,  # More total connections
-                limit_per_host=20,  # More connections per host
+                limit=100,  # Maximum connections (was 50)
+                limit_per_host=50,  # Maximum per host (was 20)
                 ttl_dns_cache=300,
                 use_dns_cache=True,
                 enable_cleanup_closed=True,
-                # SPEED BOOST: Reduce timeouts for faster operations
-                keepalive_timeout=60,
-                force_close=False  # Reuse connections
+                keepalive_timeout=120,  # Longer keepalive
+                force_close=False
             )
             
-            # SPEED OPTIMIZED: Faster timeouts but longer total time
+            # SPEED OPTIMIZED: Even faster timeouts
             timeout = aiohttp.ClientTimeout(
-                total=1800,  # 30 minutes total
-                connect=15,   # Faster connect (was 60)
-                sock_read=60  # Faster read per chunk (was 300)
+                total=1800,  # 30 minutes
+                connect=5,   # Ultra-fast connect (was 15)
+                sock_read=30  # Very fast read (was 60)
             )
             
             self.session = aiohttp.ClientSession(
@@ -63,194 +65,242 @@ class TeraboxDownloader:
                 timeout=timeout,
                 headers={
                     "User-Agent": self.user_agent,
-                    # SPEED BOOST: Request compression
-                    "Accept-Encoding": "gzip, deflate",
-                    "Connection": "keep-alive"
+                    "Accept-Encoding": "identity",  # No compression for max speed
+                    "Connection": "keep-alive",
+                    "Cache-Control": "no-cache"
                 }
             )
         return self.session
 
-    def is_supported_domain(self, url: str) -> bool:
-        """Check if URL is from supported Terabox domains"""
-        supported_domains = [
-            "terabox.com", "nephobox.com", "4funbox.com", "mirrobox.com",
-            "momerybox.com", "teraboxapp.com", "1024tera.com", "terabox.app",
-            "gibibox.com", "goaibox.com", "terasharelink.com"
-        ]
-        return any(domain in url for domain in supported_domains)
-
     async def extract_file_info(self, url: str) -> dict:
-        """Extract file information from Terabox URL using API - SPEED OPTIMIZED"""
+        """Extract file information - MAXIMUM SPEED"""
         try:
-            logger.info(f"🔍 Extracting info from: {url[:50]}...")
+            logger.info(f"🚀 MAXIMUM SPEED extraction: {url[:50]}...")
             
             api_request_url = f"{self.api_url}?url={quote(url)}"
             session = await self.get_session()
             
-            # SPEED BOOST: Parallel processing ready
             async with session.get(api_request_url) as response:
-                logger.info(f"📊 API Response Status: {response.status}")
-                
                 if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"API failed with status {response.status}")
+                    raise Exception(f"API failed: {response.status}")
                 
                 req = await response.json()
                 
-                if "✅ Status" not in req:
-                    raise Exception("File not found in API response")
-                
-                if "📜 Extracted Info" not in req:
-                    raise Exception("No extracted info in API response")
+                if "✅ Status" not in req or "📜 Extracted Info" not in req:
+                    raise Exception("Invalid API response")
                 
                 extracted_info = req["📜 Extracted Info"]
-                logger.info(f"📊 Found {len(extracted_info)} files")
+                if not extracted_info:
+                    raise Exception("No files found")
                 
-                if extracted_info:
-                    data = extracted_info[0]
-                    filename = data.get("📂 Title", "terabox_file")
-                    download_url = data.get("🔽 Direct Download Link", "")
-                    
-                    # Add extension if missing
-                    if not os.path.splitext(filename)[1]:
-                        filename += ".mp4"
-                    
-                    result = {
-                        "success": True,
-                        "filename": sanitize_filename(filename),
-                        "download_url": download_url,
-                        "title": filename
-                    }
-                    
-                    logger.info(f"✅ File info extracted: {result['filename']}")
-                    return result
-                else:
-                    raise Exception("No files in extracted info")
+                data = extracted_info[0]
+                filename = data.get("📂 Title", "terabox_file")
+                download_url = data.get("🔽 Direct Download Link", "")
+                
+                if not os.path.splitext(filename)[1]:
+                    filename += ".mp4"
+                
+                logger.info(f"🚀 MAXIMUM SPEED file found: {filename}")
+                return {
+                    "success": True,
+                    "filename": sanitize_filename(filename),
+                    "download_url": download_url,
+                    "title": filename
+                }
                     
         except Exception as e:
-            logger.error(f"❌ Error extracting info: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            logger.error(f"❌ Extraction error: {e}")
+            return {"success": False, "error": str(e)}
 
-    async def download_file_ultra_fast(self, download_url: str, filename: str, progress_callback: Optional[Callable] = None, max_retries: int = 2) -> Optional[str]:
-        """ULTRA-FAST download with optimized settings"""
+    async def download_chunk_parallel(self, session, url: str, start: int, end: int, chunk_id: int) -> bytes:
+        """Download a single chunk in parallel - MAXIMUM SPEED"""
+        headers = {
+            "Range": f"bytes={start}-{end}",
+            "Accept": "*/*",
+            "Connection": "keep-alive"
+        }
+        
+        try:
+            async with session.get(url, headers=headers) as response:
+                if response.status in [200, 206]:
+                    data = await response.read()
+                    logger.info(f"🚀 Chunk {chunk_id} complete: {len(data)} bytes")
+                    return data
+                else:
+                    raise Exception(f"Chunk {chunk_id} failed: HTTP {response.status}")
+        except Exception as e:
+            logger.error(f"❌ Chunk {chunk_id} error: {e}")
+            raise
+
+    async def download_file_parallel(self, download_url: str, filename: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
+        """MAXIMUM SPEED parallel download with multiple connections"""
         download_path = os.path.join("/tmp", filename)
         
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"⚡ ULTRA-FAST download attempt {attempt + 1}/{max_retries}")
-                session = await self.get_session()
+        try:
+            session = await self.get_session()
+            
+            # Get file size first
+            async with session.head(download_url) as response:
+                if response.status != 200:
+                    raise Exception(f"HEAD request failed: {response.status}")
                 
-                # SPEED BOOST: Add headers for optimal download
-                headers = {
-                    "Range": "bytes=0-",  # Support resume capability
-                    "Accept": "*/*",
-                    "Accept-Encoding": "identity",  # No compression for speed
-                    "Connection": "keep-alive"
-                }
+                total_size = int(response.headers.get('content-length', 0))
+                if total_size == 0:
+                    raise Exception("Cannot determine file size")
                 
-                async with session.get(download_url, headers=headers) as response:
-                    if response.status not in [200, 206]:  # Accept partial content too
-                        raise Exception(f"HTTP {response.status}")
-                    
-                    total_size = int(response.headers.get('content-length', 0))
-                    downloaded = 0
-                    
-                    logger.info(f"🚀 ULTRA-FAST mode: {filename} - {get_readable_file_size(total_size)} - {self.chunk_size // (1024*1024)}MB chunks")
-                    
-                    async with aiofiles.open(download_path, 'wb') as f:
-                        start_time = asyncio.get_event_loop().time()
-                        
-                        async for chunk in response.content.iter_chunked(self.chunk_size):
-                            if not chunk:
-                                break
-                            
-                            await f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # SPEED OPTIMIZED: Less frequent progress updates for speed
-                            if progress_callback and total_size > 0 and downloaded % (10 * 1024 * 1024) < self.chunk_size:  # Every 10MB
-                                try:
-                                    # Calculate speed
-                                    elapsed = asyncio.get_event_loop().time() - start_time
-                                    if elapsed > 0:
-                                        speed_mbps = (downloaded / (1024 * 1024)) / (elapsed / 60)  # MB per minute
-                                        await progress_callback(downloaded, total_size, speed_mbps)
-                                except Exception:
-                                    pass
-                    
-                    # Verify download completed
-                    if os.path.exists(download_path):
-                        actual_size = os.path.getsize(download_path)
-                        if total_size > 0 and actual_size < (total_size * 0.90):  # 90% tolerance
-                            raise Exception(f"Incomplete download: {actual_size}/{total_size} bytes")
-                        
-                        # Calculate final speed
-                        end_time = asyncio.get_event_loop().time()
-                        total_time = end_time - start_time if 'start_time' in locals() else 1
-                        final_speed = (actual_size / (1024 * 1024)) / (total_time / 60) if total_time > 0 else 0
-                        
-                        logger.info(f"⚡ ULTRA-FAST download complete: {filename} ({get_readable_file_size(actual_size)}) - Speed: {final_speed:.1f} MB/min")
-                        return download_path
-                    else:
-                        raise Exception("Download file not found after completion")
-                        
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"❌ ULTRA-FAST attempt {attempt + 1} failed: {error_msg}")
+                # Check if server supports range requests
+                accept_ranges = response.headers.get('accept-ranges', '').lower()
+                supports_ranges = 'bytes' in accept_ranges
                 
-                # Clean up partial file
+                logger.info(f"🚀 MAXIMUM SPEED mode: {filename}")
+                logger.info(f"📦 Size: {get_readable_file_size(total_size)}")
+                logger.info(f"⚡ Parallel chunks: {'YES' if supports_ranges else 'NO'}")
+                
+                if supports_ranges and total_size > self.chunk_size:
+                    # PARALLEL DOWNLOAD - Multiple chunks simultaneously
+                    return await self._parallel_download(session, download_url, filename, total_size, progress_callback)
+                else:
+                    # SINGLE THREAD - But optimized
+                    return await self._single_thread_download(session, download_url, filename, total_size, progress_callback)
+                    
+        except Exception as e:
+            logger.error(f"❌ Parallel download setup failed: {e}")
+            return None
+
+    async def _parallel_download(self, session, download_url: str, filename: str, total_size: int, progress_callback):
+        """Multi-threaded parallel download - MAXIMUM SPEED"""
+        download_path = os.path.join("/tmp", filename)
+        
+        # Calculate chunk ranges
+        chunk_size = self.chunk_size
+        chunks = []
+        for i in range(0, total_size, chunk_size):
+            start = i
+            end = min(i + chunk_size - 1, total_size - 1)
+            chunks.append((start, end, len(chunks)))
+        
+        logger.info(f"🚀 MAXIMUM SPEED: {len(chunks)} parallel chunks of {chunk_size // (1024*1024)}MB")
+        
+        downloaded_chunks = {}
+        downloaded_size = 0
+        start_time = asyncio.get_event_loop().time()
+        
+        # Progress tracking
+        async def update_progress():
+            if progress_callback and total_size > 0:
                 try:
-                    if os.path.exists(download_path):
-                        os.remove(download_path)
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    speed_mbps = (downloaded_size / (1024 * 1024)) / (elapsed / 60) if elapsed > 0 else 0
+                    await progress_callback(downloaded_size, total_size, speed_mbps)
                 except:
                     pass
-                
-                if attempt == max_retries - 1:
-                    logger.error(f"❌ All {max_retries} ULTRA-FAST attempts failed")
-                    return None
-                else:
-                    # SPEED OPTIMIZED: Faster retry
-                    wait_time = 2  # Only 2 seconds wait
-                    logger.info(f"⏳ Quick retry in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
         
-        return None
+        # Download chunks in batches of max_parallel_chunks
+        for i in range(0, len(chunks), self.max_parallel_chunks):
+            batch = chunks[i:i+self.max_parallel_chunks]
+            
+            # Download batch in parallel
+            tasks = []
+            for start, end, chunk_id in batch:
+                task = self.download_chunk_parallel(session, download_url, start, end, chunk_id)
+                tasks.append((task, chunk_id, start, end))
+            
+            # Wait for batch completion
+            results = await asyncio.gather(*[task[0] for task in tasks], return_exceptions=True)
+            
+            # Process results
+            for result, (_, chunk_id, start, end) in zip(results, tasks):
+                if isinstance(result, Exception):
+                    raise result
+                
+                downloaded_chunks[chunk_id] = result
+                downloaded_size += len(result)
+                
+                # Update progress every few chunks
+                if len(downloaded_chunks) % 2 == 0:
+                    await update_progress()
+        
+        # Write chunks to file in order
+        async with aiofiles.open(download_path, 'wb') as f:
+            for i in range(len(chunks)):
+                if i in downloaded_chunks:
+                    await f.write(downloaded_chunks[i])
+                else:
+                    raise Exception(f"Missing chunk {i}")
+        
+        # Final speed calculation
+        elapsed = asyncio.get_event_loop().time() - start_time
+        final_speed = (total_size / (1024 * 1024)) / (elapsed / 60) if elapsed > 0 else 0
+        
+        logger.info(f"🚀 MAXIMUM SPEED complete: {filename} - {final_speed:.1f} MB/min")
+        return download_path
+
+    async def _single_thread_download(self, session, download_url: str, filename: str, total_size: int, progress_callback):
+        """Single-thread but MAXIMUM optimized download"""
+        download_path = os.path.join("/tmp", filename)
+        
+        logger.info(f"⚡ OPTIMIZED single-thread: {filename}")
+        
+        async with session.get(download_url) as response:
+            if response.status != 200:
+                raise Exception(f"Download failed: HTTP {response.status}")
+            
+            downloaded = 0
+            start_time = asyncio.get_event_loop().time()
+            
+            async with aiofiles.open(download_path, 'wb') as f:
+                async for chunk in response.content.iter_chunked(self.chunk_size):
+                    if not chunk:
+                        break
+                    
+                    await f.write(chunk)
+                    downloaded += len(chunk)
+                    
+                    # Progress every 20MB
+                    if progress_callback and downloaded % (20 * 1024 * 1024) < self.chunk_size:
+                        try:
+                            elapsed = asyncio.get_event_loop().time() - start_time
+                            speed_mbps = (downloaded / (1024 * 1024)) / (elapsed / 60) if elapsed > 0 else 0
+                            await progress_callback(downloaded, total_size, speed_mbps)
+                        except:
+                            pass
+            
+            elapsed = asyncio.get_event_loop().time() - start_time
+            final_speed = (total_size / (1024 * 1024)) / (elapsed / 60) if elapsed > 0 else 0
+            logger.info(f"⚡ OPTIMIZED download complete: {filename} - {final_speed:.1f} MB/min")
+            
+        return download_path
 
     async def download_file(self, url: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """Download file from Terabox with ULTRA-FAST mode"""
+        """MAXIMUM SPEED download entry point"""
         try:
-            logger.info(f"⚡ Starting ULTRA-FAST download: {url[:50]}...")
-            
-            if not self.is_supported_domain(url):
-                raise Exception("Unsupported domain")
+            logger.info(f"🚀 MAXIMUM SPEED download starting: {url[:50]}...")
             
             # Get file info
             file_info = await self.extract_file_info(url)
             if not file_info.get("success"):
-                raise Exception(file_info.get("error", "Failed to get file info"))
+                raise Exception(file_info.get("error", "File info failed"))
             
             download_url = file_info["download_url"]
             filename = file_info["filename"]
             
             if not download_url:
-                raise Exception("No download URL found")
+                raise Exception("No download URL")
             
-            # Download with ULTRA-FAST mode
-            return await self.download_file_ultra_fast(download_url, filename, progress_callback)
+            # MAXIMUM SPEED download
+            result = await self.download_file_parallel(download_url, filename, progress_callback)
+            return result
                     
         except Exception as e:
-            logger.error(f"❌ ULTRA-FAST download error: {e}")
+            logger.error(f"❌ MAXIMUM SPEED download error: {e}")
             return None
 
     async def close(self):
-        """Close the session"""
+        """Close session"""
         if self.session:
             await self.session.close()
             self.session = None
 
 # Global instance
 terabox_downloader = TeraboxDownloader()
-                
+                    
