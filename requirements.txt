@@ -1,48 +1,7 @@
-# Core Bot Libraries
+# Core essentials only
 pyrogram==2.0.106
 TgCrypto==1.2.5
-
-# Web and HTTP
 aiohttp==3.8.6
 requests==2.31.0
-httpx==0.25.2
-
-# File Operations
-aiofiles==23.2.0
-
-# Database Support
-motor==3.3.2
-pymongo==4.6.0
-
-# Utilities
-python-dotenv==1.0.0
 validators==0.22.0
-tqdm==4.66.1
-python-dateutil==2.8.2
-
-# JSON Processing
-ujson==5.8.0
-orjson==3.9.10
-
-# Error Handling
-colorlog==6.7.0
-
-# Performance
-psutil==5.9.6
-
-# Media Processing
-Pillow==10.1.0
-
-# Text Processing
-python-slugify==8.0.1
-
-# Async Utilities
-asyncio-throttle==1.0.2
-aiolimiter==1.1.0
-
-# Security
-cryptography==41.0.7
-certifi==2023.11.17
-
-# YouTube Download Support
-yt-dlp==2023.11.16
+python-dotenv==1.0.0
