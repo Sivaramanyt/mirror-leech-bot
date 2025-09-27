@@ -33,22 +33,24 @@ class TeraboxDownloader:
         self.session = None
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
         self.api_url = "https://wdzone-terabox-api.vercel.app/api"
-        self.chunk_size = 512 * 1024  # 512KB chunks
+        self.chunk_size = 1024 * 1024  # 1MB chunks for faster download
 
     async def get_session(self):
-        """Get or create aiohttp session"""
+        """Get or create aiohttp session with extended timeouts"""
         if not self.session:
             connector = aiohttp.TCPConnector(
-                limit=10,
-                limit_per_host=4,
+                limit=20,
+                limit_per_host=8,
                 ttl_dns_cache=300,
-                use_dns_cache=True
+                use_dns_cache=True,
+                enable_cleanup_closed=True
             )
             
+            # Extended timeouts for large files
             timeout = aiohttp.ClientTimeout(
-                total=300,  # 5 minutes
-                connect=30,
-                sock_read=120
+                total=1800,  # 30 minutes total
+                connect=60,  # 1 minute connect
+                sock_read=300  # 5 minutes read timeout per chunk
             )
             
             self.session = aiohttp.ClientSession(
@@ -121,8 +123,74 @@ class TeraboxDownloader:
                 "error": str(e)
             }
 
+    async def download_file_with_retry(self, download_url: str, filename: str, progress_callback: Optional[Callable] = None, max_retries: int = 3) -> Optional[str]:
+        """Download file with retry logic and better error handling"""
+        download_path = os.path.join("/tmp", filename)
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"📥 Download attempt {attempt + 1}/{max_retries}")
+                session = await self.get_session()
+                
+                async with session.get(download_url) as response:
+                    if response.status != 200:
+                        raise Exception(f"HTTP {response.status}")
+                    
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
+                    
+                    logger.info(f"📦 Starting download: {filename} - {get_readable_file_size(total_size)}")
+                    
+                    async with aiofiles.open(download_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(self.chunk_size):
+                            if not chunk:
+                                break
+                            
+                            await f.write(chunk)
+                            downloaded += len(chunk)
+                            
+                            # Progress callback every 2MB
+                            if progress_callback and total_size > 0 and downloaded % (2 * 1024 * 1024) < self.chunk_size:
+                                try:
+                                    await progress_callback(downloaded, total_size)
+                                except Exception:
+                                    pass  # Ignore progress errors
+                    
+                    # Verify download completed
+                    if os.path.exists(download_path):
+                        actual_size = os.path.getsize(download_path)
+                        if total_size > 0 and actual_size < (total_size * 0.95):  # Allow 5% tolerance
+                            raise Exception(f"Incomplete download: {actual_size}/{total_size} bytes")
+                        
+                        logger.info(f"✅ Download complete: {filename} ({get_readable_file_size(actual_size)})")
+                        return download_path
+                    else:
+                        raise Exception("Download file not found after completion")
+                        
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"❌ Download attempt {attempt + 1} failed: {error_msg}")
+                
+                # Clean up partial file
+                try:
+                    if os.path.exists(download_path):
+                        os.remove(download_path)
+                except:
+                    pass
+                
+                if attempt == max_retries - 1:  # Last attempt
+                    logger.error(f"❌ All {max_retries} download attempts failed")
+                    return None
+                else:
+                    # Wait before retry
+                    wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
+                    logger.info(f"⏳ Waiting {wait_time}s before retry...")
+                    await asyncio.sleep(wait_time)
+        
+        return None
+
     async def download_file(self, url: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """Download file from Terabox with progress tracking"""
+        """Download file from Terabox with enhanced error handling"""
         try:
             logger.info(f"🚀 Starting download: {url[:50]}...")
             
@@ -140,37 +208,8 @@ class TeraboxDownloader:
             if not download_url:
                 raise Exception("No download URL found")
             
-            # Create download path
-            download_path = os.path.join("/tmp", filename)
-            session = await self.get_session()
-            
-            async with session.get(download_url) as response:
-                if response.status == 200:
-                    total_size = int(response.headers.get('content-length', 0))
-                    downloaded = 0
-                    
-                    logger.info(f"📦 Downloading {filename} - {get_readable_file_size(total_size)}")
-                    
-                    async with aiofiles.open(download_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(self.chunk_size):
-                            if not chunk:
-                                break
-                            
-                            await f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # Progress callback every 5MB
-                            if progress_callback and total_size > 0 and downloaded % (5 * 1024 * 1024) < self.chunk_size:
-                                try:
-                                    await progress_callback(downloaded, total_size)
-                                except Exception as pe:
-                                    logger.warning(f"Progress callback error: {pe}")
-                    
-                    logger.info(f"✅ Download complete: {filename}")
-                    return download_path
-                    
-                else:
-                    raise Exception(f"Download failed: HTTP {response.status}")
+            # Download with retry
+            return await self.download_file_with_retry(download_url, filename, progress_callback)
                     
         except Exception as e:
             logger.error(f"❌ Download error: {e}")
@@ -184,4 +223,4 @@ class TeraboxDownloader:
 
 # Global instance
 terabox_downloader = TeraboxDownloader()
-            
+                
