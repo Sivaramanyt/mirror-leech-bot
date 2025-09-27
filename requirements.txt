@@ -10,6 +10,10 @@ httpx==0.25.2
 # File Operations
 aiofiles==23.2.0
 
+# Database Support - ADDED
+motor==3.3.2
+pymongo==4.6.0
+
 # Utilities
 python-dotenv==1.0.0
 validators==0.22.0
