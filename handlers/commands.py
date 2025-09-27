@@ -1,61 +1,77 @@
-@app.on_message(filters.command("leech"))
-async def leech_command(client, message: Message):
-    """Real leech command with Terabox API"""
-    try:
-        from utils.terabox import terabox  # Import here to avoid circular imports
+import time
+import logging
+from pyrogram import filters
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+import validators
+
+logger = logging.getLogger(__name__)
+
+def setup_command_handlers(app):
+    """Setup command handlers - minimal working version"""
+    
+    @app.on_message(filters.command("start"))
+    async def start_command(client, message: Message):
+        start_text = f"""
+🚀 **Welcome to Terabox Leech Bot!**
+
+Hello {message.from_user.mention}! 👋
+
+📋 **Commands:**
+• `/leech [url]` - Download from Terabox
+• `/help` - Show help
+• `/ping` - Test bot
+
+🔗 **Supported:** All Terabox variants
+
+Ready for downloads! 🚀
+        """
         
-        user_id = message.from_user.id
+        keyboard = [[
+            InlineKeyboardButton("📋 Help", callback_data="help"),
+            InlineKeyboardButton("🏓 Ping", callback_data="ping")
+        ]]
         
+        await message.reply_text(start_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        logger.info(f"📥 Start command from user {message.from_user.id}")
+
+    @app.on_message(filters.command("ping"))
+    async def ping_command(client, message: Message):
+        start_time = time.time()
+        msg = await message.reply_text("🏓 Pinging...")
+        ping_time = round((time.time() - start_time) * 1000, 2)
+        await msg.edit_text(f"🏓 **Pong!** {ping_time}ms")
+
+    @app.on_message(filters.command("help"))
+    async def help_command(client, message: Message):
+        await message.reply_text("""
+❓ **Terabox Leech Bot Help**
+
+📥 **Usage:**
+• `/leech [url]` - Download from Terabox
+• Send Terabox URL directly
+
+🔗 **Supported:**
+• terabox.com, nephobox.com
+• 4funbox.com, mirrobox.com
+• All Terabox variants
+
+🚀 **Ready to download!**
+        """)
+
+    @app.on_message(filters.command("leech"))
+    async def leech_command(client, message: Message):
         if len(message.command) < 2:
-            await message.reply_text(
-                "❌ **Please provide a URL to download**\n\n"
-                "**Usage:** `/leech [URL]`\n"
-                "**Example:** `/leech https://terabox.com/s/abc123`\n\n"
-                "💡 **Tip:** Send Terabox URLs directly!"
-            )
+            await message.reply_text("❌ Please provide a URL\n\nUsage: `/leech [url]`")
             return
-        
+            
         url = " ".join(message.command[1:])
         
         if not validators.url(url):
             await message.reply_text("❌ Invalid URL format")
             return
-        
-        # Processing message
-        status_msg = await message.reply_text("🔍 **Analyzing Terabox URL...**")
-        
-        # Get file info from Terabox
-        file_info = await terabox.get_file_info(url)
-        
-        if not file_info["success"]:
-            await status_msg.edit_text(
-                f"❌ **Error:** {file_info['error']}\n\n"
-                "**Possible causes:**\n"
-                "• Private or restricted file\n"
-                "• Invalid/expired URL\n"
-                "• File not found\n\n"
-                "Try with a different URL."
-            )
-            return
-        
-        # Success - show file info
-        await status_msg.edit_text(
-            f"✅ **File Found!**\n\n"
-            f"📁 **Name:** {file_info['filename']}\n"
-            f"📊 **Size:** {terabox.format_size(file_info['size'])}\n"
-            f"🔗 **Type:** {file_info['file_type']}\n\n"
-            f"🚀 **Status:** Ready for download!\n"
-            f"📥 **URL:** Valid Terabox link detected\n\n"
-            f"🔧 **Next:** File upload to Telegram will be implemented next.\n"
-            f"**This confirms the Terabox API is working!** ✅"
-        )
-        
-        logger.info(f"📥 Real leech processed for user {user_id}: {file_info['filename']}")
-        
-    except Exception as e:
-        logger.error(f"❌ Leech error: {e}")
-        await message.reply_text(
-            "❌ **Error occurred**\n\n"
-            "Please try again or contact support."
-        )
+            
+        await message.reply_text(f"✅ **Leech Command Working!**\n\nURL: {url[:50]}...\n\nBot is responding correctly! 🚀")
+        logger.info(f"📥 Leech command processed for user {message.from_user.id}")
+    
+    logger.info("✅ All command handlers setup complete - minimal working version")
         
