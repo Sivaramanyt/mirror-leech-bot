@@ -3,7 +3,7 @@ import aiohttp
 import asyncio
 import logging
 from typing import Optional, Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 import aiofiles
 import random
 
@@ -33,64 +33,63 @@ class TeraboxDownloader:
     def __init__(self):
         self.session = None
         self.api_url = "https://wdzone-terabox-api.vercel.app/api"
-        # HIGH SPEED: Larger chunks to reduce overhead
         self.chunk_size = 8 * 1024 * 1024  # 8MB chunks
         
-        # ANTI-THROTTLING: Multiple user agents
-        self.user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/119.0.0.0 Safari/537.36"
+        # BYPASS 403: Comprehensive headers for different scenarios
+        self.browser_headers = [
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "cross-site",
+                "Cache-Control": "max-age=0"
+            },
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
         ]
 
     async def get_session(self):
-        """Get HIGH-SPEED anti-throttling session"""
+        """Get session with 403-bypass configuration"""
         if not self.session:
-            # ANTI-THROTTLING: Aggressive settings
             connector = aiohttp.TCPConnector(
-                limit=100,  # Maximum connections
-                limit_per_host=30,  # High per-host connections
+                limit=50,
+                limit_per_host=20,
                 ttl_dns_cache=300,
                 use_dns_cache=True,
                 enable_cleanup_closed=True,
-                keepalive_timeout=30,  # Shorter keepalive to avoid throttling
+                keepalive_timeout=60,
                 force_close=False
             )
             
-            # SPEED: Shorter timeouts for faster failure detection
             timeout = aiohttp.ClientTimeout(
                 total=1200,  # 20 minutes
-                connect=15,   # Fast connect
-                sock_read=60  # Fast read
+                connect=30,   
+                sock_read=120  
             )
-            
-            # ANTI-THROTTLING: Random user agent
-            user_agent = random.choice(self.user_agents)
             
             self.session = aiohttp.ClientSession(
                 connector=connector,
-                timeout=timeout,
-                headers={
-                    "User-Agent": user_agent,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.5",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Connection": "keep-alive",
-                    "Upgrade-Insecure-Requests": "1",
-                    # ANTI-THROTTLING: Mimic real browser
-                    "Cache-Control": "max-age=0",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none"
-                }
+                timeout=timeout
             )
         return self.session
 
     async def extract_file_info(self, url: str) -> dict:
-        """Extract file information - HIGH SPEED"""
+        """Extract file information"""
         try:
-            logger.info(f"🚀 HIGH-SPEED extraction: {url[:50]}...")
+            logger.info(f"🔍 Extracting info: {url[:50]}...")
             
             api_request_url = f"{self.api_url}?url={quote(url)}"
             session = await self.get_session()
@@ -115,58 +114,83 @@ class TeraboxDownloader:
                 if not os.path.splitext(filename)[1]:
                     filename += ".mp4"
                 
-                logger.info(f"🚀 HIGH-SPEED file found: {filename}")
+                logger.info(f"✅ File found: {filename}")
+                logger.info(f"🔗 Download URL: {download_url[:80]}...")
+                
                 return {
                     "success": True,
                     "filename": sanitize_filename(filename),
                     "download_url": download_url,
-                    "title": filename
+                    "title": filename,
+                    "original_url": url
                 }
                     
         except Exception as e:
             logger.error(f"❌ Extraction error: {e}")
             return {"success": False, "error": str(e)}
 
-    async def download_high_speed(self, download_url: str, filename: str, progress_callback: Optional[Callable] = None, max_retries: int = 3) -> Optional[str]:
-        """HIGH-SPEED download with anti-throttling"""
+    async def download_bypass_403(self, download_url: str, filename: str, original_url: str, progress_callback: Optional[Callable] = None, max_retries: int = 5) -> Optional[str]:
+        """BYPASS 403 with multiple header strategies"""
         download_path = os.path.join("/tmp", filename)
         
         for attempt in range(max_retries):
             try:
-                # NEW SESSION FOR EACH ATTEMPT to avoid throttling
+                # Fresh session for each attempt
                 if self.session:
                     await self.session.close()
                     self.session = None
                 
                 session = await self.get_session()
                 
-                logger.info(f"🚀 HIGH-SPEED attempt {attempt + 1}/{max_retries}: {filename}")
+                # BYPASS STRATEGY: Different headers per attempt
+                headers = self.browser_headers[attempt % len(self.browser_headers)].copy()
                 
-                # ANTI-THROTTLING: Add random delay
+                # BYPASS 403: Add specific headers based on URL
+                parsed_url = urlparse(download_url)
+                domain = parsed_url.netloc
+                
+                # Add domain-specific headers
+                if 'terabox' in domain or '1024tera' in domain:
+                    headers.update({
+                        "Referer": original_url,
+                        "Origin": f"https://{urlparse(original_url).netloc}",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "same-site"
+                    })
+                
+                # BYPASS 403: Add random elements
+                headers.update({
+                    "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
+                    "X-Real-IP": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
+                    "X-Requested-With": "XMLHttpRequest" if attempt > 2 else None
+                })
+                
+                # Remove None values
+                headers = {k: v for k, v in headers.items() if v is not None}
+                
+                logger.info(f"🚀 BYPASS 403 attempt {attempt + 1}/{max_retries}: {filename}")
+                logger.info(f"🔧 Using strategy: {headers.get('User-Agent', 'Unknown')[:50]}...")
+                
                 if attempt > 0:
-                    delay = random.uniform(1, 3)
+                    delay = random.uniform(2, 5)
                     await asyncio.sleep(delay)
                 
-                # ANTI-THROTTLING: Random headers for each attempt
-                extra_headers = {
-                    "Referer": random.choice([
-                        "https://www.google.com/",
-                        "https://terabox.com/",
-                        "https://www.bing.com/"
-                    ]),
-                    "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                    "X-Real-IP": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-                }
-                
-                async with session.get(download_url, headers=extra_headers) as response:
+                async with session.get(download_url, headers=headers) as response:
+                    logger.info(f"📊 Response Status: {response.status}")
+                    logger.info(f"📋 Response Headers: {dict(list(response.headers.items())[:3])}")
+                    
+                    if response.status == 403:
+                        logger.error(f"❌ 403 Forbidden with strategy {attempt + 1}")
+                        continue
+                    
                     if response.status not in [200, 206]:
                         raise Exception(f"HTTP {response.status}")
                     
                     total_size = int(response.headers.get('content-length', 0))
                     
-                    logger.info(f"🚀 HIGH-SPEED mode: {filename}")
+                    logger.info(f"✅ SUCCESS! Breaking through 403 barrier!")
                     logger.info(f"📦 Size: {get_readable_file_size(total_size)}")
-                    logger.info(f"⚡ Using 8MB chunks for maximum speed")
                     
                     downloaded = 0
                     start_time = asyncio.get_event_loop().time()
@@ -179,7 +203,7 @@ class TeraboxDownloader:
                             await f.write(chunk)
                             downloaded += len(chunk)
                             
-                            # Progress every 16MB for speed
+                            # Progress every 16MB
                             if progress_callback and downloaded % (16 * 1024 * 1024) < self.chunk_size:
                                 try:
                                     elapsed = asyncio.get_event_loop().time() - start_time
@@ -194,13 +218,13 @@ class TeraboxDownloader:
                         elapsed = asyncio.get_event_loop().time() - start_time
                         final_speed = (actual_size / (1024 * 1024)) / (elapsed / 60) if elapsed > 0 else 0
                         
-                        logger.info(f"🚀 HIGH-SPEED complete: {filename} ({get_readable_file_size(actual_size)}) - Speed: {final_speed:.1f} MB/min")
+                        logger.info(f"🎉 403 BYPASS SUCCESS: {filename} - Speed: {final_speed:.1f} MB/min")
                         return download_path
                     else:
                         raise Exception("File not created")
                         
             except Exception as e:
-                logger.error(f"❌ HIGH-SPEED attempt {attempt + 1} failed: {e}")
+                logger.error(f"❌ Attempt {attempt + 1} failed: {e}")
                 
                 # Clean up partial file
                 try:
@@ -210,19 +234,15 @@ class TeraboxDownloader:
                     pass
                 
                 if attempt == max_retries - 1:
+                    logger.error("❌ All 403 bypass strategies failed")
                     return None
-                else:
-                    # Exponential backoff with randomization
-                    wait_time = (attempt + 1) * 2 + random.uniform(1, 3)
-                    logger.info(f"⏳ Retrying in {wait_time:.1f}s...")
-                    await asyncio.sleep(wait_time)
         
         return None
 
     async def download_file(self, url: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """HIGH-SPEED download entry point"""
+        """403-BYPASS download entry point"""
         try:
-            logger.info(f"🚀 HIGH-SPEED download starting: {url[:50]}...")
+            logger.info(f"🚀 403-BYPASS download starting: {url[:50]}...")
             
             # Get file info
             file_info = await self.extract_file_info(url)
@@ -231,16 +251,17 @@ class TeraboxDownloader:
             
             download_url = file_info["download_url"]
             filename = file_info["filename"]
+            original_url = file_info["original_url"]
             
             if not download_url:
                 raise Exception("No download URL")
             
-            # HIGH-SPEED download with anti-throttling
-            result = await self.download_high_speed(download_url, filename, progress_callback)
+            # 403-BYPASS download
+            result = await self.download_bypass_403(download_url, filename, original_url, progress_callback)
             return result
                     
         except Exception as e:
-            logger.error(f"❌ HIGH-SPEED download error: {e}")
+            logger.error(f"❌ 403-BYPASS download error: {e}")
             return None
 
     async def close(self):
@@ -251,4 +272,4 @@ class TeraboxDownloader:
 
 # Global instance
 terabox_downloader = TeraboxDownloader()
-    
+        
