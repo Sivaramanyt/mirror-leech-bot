@@ -1,77 +1,77 @@
-import time
-import logging
-from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
-import validators
-
-logger = logging.getLogger(__name__)
-
-def setup_command_handlers(app):
-    """Setup command handlers - minimal working version"""
-    
-    @app.on_message(filters.command("start"))
-    async def start_command(client, message: Message):
-        start_text = f"""
-🚀 **Welcome to Terabox Leech Bot!**
-
-Hello {message.from_user.mention}! 👋
-
-📋 **Commands:**
-• `/leech [url]` - Download from Terabox
-• `/help` - Show help
-• `/ping` - Test bot
-
-🔗 **Supported:** All Terabox variants
-
-Ready for downloads! 🚀
-        """
+@app.on_message(filters.command("leech"))
+async def leech_command(client, message: Message):
+    """Real Terabox leech command"""
+    try:
+        from utils.terabox import terabox_downloader
         
-        keyboard = [[
-            InlineKeyboardButton("📋 Help", callback_data="help"),
-            InlineKeyboardButton("🏓 Ping", callback_data="ping")
-        ]]
+        user_id = message.from_user.id
         
-        await message.reply_text(start_text, reply_markup=InlineKeyboardMarkup(keyboard))
-        logger.info(f"📥 Start command from user {message.from_user.id}")
-
-    @app.on_message(filters.command("ping"))
-    async def ping_command(client, message: Message):
-        start_time = time.time()
-        msg = await message.reply_text("🏓 Pinging...")
-        ping_time = round((time.time() - start_time) * 1000, 2)
-        await msg.edit_text(f"🏓 **Pong!** {ping_time}ms")
-
-    @app.on_message(filters.command("help"))
-    async def help_command(client, message: Message):
-        await message.reply_text("""
-❓ **Terabox Leech Bot Help**
-
-📥 **Usage:**
-• `/leech [url]` - Download from Terabox
-• Send Terabox URL directly
-
-🔗 **Supported:**
-• terabox.com, nephobox.com
-• 4funbox.com, mirrobox.com
-• All Terabox variants
-
-🚀 **Ready to download!**
-        """)
-
-    @app.on_message(filters.command("leech"))
-    async def leech_command(client, message: Message):
         if len(message.command) < 2:
-            await message.reply_text("❌ Please provide a URL\n\nUsage: `/leech [url]`")
+            await message.reply_text(
+                "❌ **Please provide a Terabox URL**\n\n"
+                "**Usage:** `/leech [URL]`\n"
+                "**Example:** `/leech https://terabox.com/s/abc123`"
+            )
             return
-            
+        
         url = " ".join(message.command[1:])
         
         if not validators.url(url):
             await message.reply_text("❌ Invalid URL format")
             return
-            
-        await message.reply_text(f"✅ **Leech Command Working!**\n\nURL: {url[:50]}...\n\nBot is responding correctly! 🚀")
-        logger.info(f"📥 Leech command processed for user {message.from_user.id}")
-    
-    logger.info("✅ All command handlers setup complete - minimal working version")
         
+        if not terabox_downloader.is_supported_domain(url):
+            await message.reply_text("❌ Only Terabox URLs are supported")
+            return
+        
+        # Start process
+        status_msg = await message.reply_text("🔍 **Getting file info...**")
+        
+        # Get file info
+        file_info = await terabox_downloader.extract_file_info(url)
+        
+        if not file_info.get("success"):
+            await status_msg.edit_text(f"❌ **Error:** {file_info.get('error')}")
+            return
+        
+        await status_msg.edit_text(
+            f"✅ **File Found!**\n\n"
+            f"📁 **Name:** {file_info['filename']}\n"
+            f"🔗 **Source:** Terabox\n\n"
+            f"📥 **Starting download...**"
+        )
+        
+        # Progress callback
+        async def progress_callback(downloaded, total):
+            try:
+                progress = (downloaded / total) * 100
+                await status_msg.edit_text(
+                    f"📥 **Downloading...**\n\n"
+                    f"📁 **File:** {file_info['filename'][:30]}...\n"
+                    f"📊 **Progress:** {progress:.1f}%\n"
+                    f"⬇️ **Downloaded:** {terabox_downloader.get_readable_file_size(downloaded)}"
+                )
+            except:
+                pass
+        
+        # Download file
+        download_path = await terabox_downloader.download_file(url, progress_callback)
+        
+        if download_path and os.path.exists(download_path):
+            file_size = os.path.getsize(download_path)
+            await status_msg.edit_text(
+                f"✅ **Download Complete!**\n\n"
+                f"📁 **File:** {file_info['filename']}\n"
+                f"📊 **Size:** {terabox_downloader.get_readable_file_size(file_size)}\n"
+                f"💾 **Saved to:** Server\n\n"
+                f"🚀 **Ready for upload to Telegram!**"
+            )
+        else:
+            await status_msg.edit_text("❌ Download failed")
+            
+        logger.info(f"📥 Leech completed for user {user_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Leech error: {e}")
+        await message.reply_text("❌ An error occurred during download")
+            
