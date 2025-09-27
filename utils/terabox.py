@@ -49,14 +49,6 @@ class NuclearTeraboxDownloader:
             "https://teraboxapi.nephobox.com/api"
         ]
         
-        # FREE PROXY LISTS (Basic ones - can be enhanced)
-        self.proxy_list = [
-            None,  # No proxy first
-            # Add working proxies here if needed
-            # "http://proxy1:port",
-            # "http://proxy2:port",
-        ]
-        
         self.chunk_size = 4 * 1024 * 1024  # 4MB chunks for stability
         
         # NUCLEAR 403-BYPASS STRATEGIES
@@ -167,6 +159,11 @@ class NuclearTeraboxDownloader:
         )
         return self.session
 
+    # COMPATIBILITY METHOD FOR EXISTING CODE
+    async def extract_file_info(self, url: str, api_index: int = 0) -> dict:
+        """Extract file information - compatibility method"""
+        return await self.try_all_apis(url)
+
     async def try_all_apis(self, url: str) -> dict:
         """Try all API endpoints until one works"""
         for i, api_url in enumerate(self.api_endpoints):
@@ -225,14 +222,11 @@ class NuclearTeraboxDownloader:
             try:
                 # Strategy selection with cycling
                 strategy_index = attempt % len(self.nuclear_strategies)
-                proxy_index = (attempt // len(self.nuclear_strategies)) % len(self.proxy_list)
-                
                 headers = self.nuclear_strategies[strategy_index].copy()
-                proxy = self.proxy_list[proxy_index]
                 
-                # Get fresh session every 3 attempts or when switching proxies
-                if attempt % 3 == 0 or proxy:
-                    session = await self.get_fresh_session(proxy)
+                # Get fresh session every 3 attempts
+                if attempt % 3 == 0:
+                    session = await self.get_fresh_session()
                 else:
                     session = self.session or await self.get_fresh_session()
                 
@@ -276,9 +270,8 @@ class NuclearTeraboxDownloader:
                         "If-None-Match": f'"{random.randint(100000, 999999)}"',
                     })
                 
-                proxy_text = f" via {proxy}" if proxy else ""
-                logger.info(f"🚀 NUCLEAR BYPASS attempt {attempt + 1}/{max_attempts}: {filename}")
-                logger.info(f"🔧 Strategy {strategy_index + 1}: {headers.get('User-Agent', 'Unknown')[:50]}...{proxy_text}")
+                logger.info(f"💣 NUCLEAR BYPASS attempt {attempt + 1}/{max_attempts}: {filename}")
+                logger.info(f"🔧 Strategy {strategy_index + 1}: {headers.get('User-Agent', 'Unknown')[:50]}...")
                 
                 # Progressive delays with randomization
                 if attempt > 0:
@@ -298,7 +291,7 @@ class NuclearTeraboxDownloader:
                     logger.info(f"📊 Response: HTTP {status}, Content-Length: {content_length}")
                     
                     if status == 403:
-                        logger.error(f"❌ 403 with strategy {strategy_index + 1}{proxy_text}")
+                        logger.error(f"❌ 403 with strategy {strategy_index + 1}")
                         continue
                     elif status == 429:
                         logger.warning(f"⚠️ Rate limited, waiting 30s...")
@@ -396,4 +389,4 @@ class NuclearTeraboxDownloader:
 
 # Global instance
 terabox_downloader = NuclearTeraboxDownloader()
-    
+        
