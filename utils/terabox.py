@@ -78,15 +78,20 @@ class OptimizedTeraboxDownloader:
             logger.info(f"🔍 Extracting surl from: {url}")
             url = url.strip()
             
+            # ✅ FIXED: Added teraboxlink.com pattern
             patterns = [
                 r'surl=([A-Za-z0-9_-]+)',
                 r'/s/([A-Za-z0-9_-]+)',
                 r'[?&]surl=([A-Za-z0-9_-]+)',
                 r'terasharelink\.com/s/([A-Za-z0-9_-]+)',
+                r'teraboxlink\.com/s/([A-Za-z0-9_-]+)',    # ← ADDED THIS LINE!
                 r'terabox\.com/s/([A-Za-z0-9_-]+)',
                 r'nephobox\.com/s/([A-Za-z0-9_-]+)',
                 r'4funbox\.com/s/([A-Za-z0-9_-]+)',
-                r'mirrobox\.com/s/([A-Za-z0-9_-]+)'
+                r'mirrobox\.com/s/([A-Za-z0-9_-]+)',
+                r'momerybox\.com/s/([A-Za-z0-9_-]+)',
+                r'tibibox\.com/s/([A-Za-z0-9_-]+)',
+                r'1024tera\.com/s/([A-Za-z0-9_-]+)'
             ]
             
             for pattern in patterns:
@@ -121,7 +126,8 @@ class OptimizedTeraboxDownloader:
             f"https://wdzone-terabox-api.vercel.app/api?url=https://terabox.com/s/{surl}",
             f"https://terabox-api-delta.vercel.app/api?url=https://terabox.com/s/{surl}",
             f"https://teraboxapi.nephobox.com/api?url=https://terabox.com/s/{surl}",
-            # Backup with different formats
+            # ✅ FIXED: Added teraboxlink.com API calls
+            f"https://wdzone-terabox-api.vercel.app/api?url=https://teraboxlink.com/s/{surl}",
             f"https://wdzone-terabox-api.vercel.app/api?url=https://terasharelink.com/s/{surl}",
             f"https://wdzone-terabox-api.vercel.app/api?url=https://nephobox.com/s/{surl}"
         ]
