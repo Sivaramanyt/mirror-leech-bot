@@ -5,9 +5,10 @@ import asyncio
 import aiohttp
 import aiofiles
 import logging
+import time
+import hashlib
 from typing import Optional, Callable
 from urllib.parse import parse_qs, urlparse, unquote
-import base64
 
 logger = logging.getLogger(__name__)
 
@@ -30,36 +31,39 @@ def get_readable_file_size(size_bytes: int) -> str:
         i += 1
     return f"{size_bytes:.2f} {size_names[i]}"
 
-class TeraboxDownloader:
+class OptimizedTeraboxDownloader:
     def __init__(self):
         self.session = None
-        self.chunk_size = 8 * 1024 * 1024  # 8MB chunks
+        self.chunk_size = 16 * 1024 * 1024  # 16MB chunks for faster download
         
-        # Headers with proper compression support
+        # Optimized headers for maximum speed
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate',  # Remove brotli to fix compression error
-            'DNT': '1',
+            'Accept-Encoding': 'gzip, deflate',  # No brotli
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0'
+            'Cache-Control': 'no-cache'
         }
 
     async def get_session(self):
-        """Get or create aiohttp session with proper configuration"""
+        """Get optimized session for maximum speed"""
         if not self.session:
             connector = aiohttp.TCPConnector(
-                limit=20,
-                limit_per_host=5,
+                limit=50,           # Increased connection pool
+                limit_per_host=20,  # More concurrent connections
                 ttl_dns_cache=300,
                 use_dns_cache=True,
-                keepalive_timeout=30,
-                enable_cleanup_closed=True
+                keepalive_timeout=120,  # Longer keepalive
+                enable_cleanup_closed=True,
+                family=0  # Allow both IPv4 and IPv6
             )
             
-            timeout = aiohttp.ClientTimeout(total=300, connect=30, sock_read=60)
+            timeout = aiohttp.ClientTimeout(
+                total=3600,      # 1 hour total timeout
+                connect=30,      # Quick connect timeout
+                sock_read=300    # 5 minutes read timeout
+            )
             
             self.session = aiohttp.ClientSession(
                 connector=connector,
@@ -69,14 +73,11 @@ class TeraboxDownloader:
         return self.session
 
     async def extract_surl_from_url(self, url: str) -> Optional[str]:
-        """Extract surl from various Terabox URL formats with better cleaning"""
+        """Extract surl from various Terabox URL formats"""
         try:
             logger.info(f"🔍 Extracting surl from: {url}")
-            
-            # Clean up URL first
             url = url.strip()
             
-            # Handle different URL formats with more patterns
             patterns = [
                 r'surl=([A-Za-z0-9_-]+)',
                 r'/s/([A-Za-z0-9_-]+)',
@@ -92,12 +93,10 @@ class TeraboxDownloader:
                 match = re.search(pattern, url, re.IGNORECASE)
                 if match:
                     surl = match.group(1)
-                    # Clean up any trailing characters
                     surl = re.sub(r'[^A-Za-z0-9_-].*$', '', surl)
                     logger.info(f"✅ Extracted surl: {surl}")
                     return surl
             
-            # Manual parsing as last resort
             parsed_url = urlparse(url)
             if '/s/' in parsed_url.path:
                 path_parts = parsed_url.path.split('/s/')
@@ -115,38 +114,34 @@ class TeraboxDownloader:
             logger.error(f"Error extracting surl: {e}")
             return None
 
-    async def try_working_apis(self, surl: str) -> dict:
-        """Try working API endpoints with proper error handling"""
-        # Updated working APIs
-        api_endpoints = [
+    async def get_fastest_download_url(self, surl: str) -> dict:
+        """Try APIs in order of speed and reliability"""
+        # Prioritized API endpoints (fastest first)
+        priority_apis = [
             f"https://wdzone-terabox-api.vercel.app/api?url=https://terabox.com/s/{surl}",
             f"https://terabox-api-delta.vercel.app/api?url=https://terabox.com/s/{surl}",
-            f"https://terabox-downloader-api.vercel.app/api?url=https://terabox.com/s/{surl}",
-            f"https://api-terabox.onrender.com/api?url=https://terabox.com/s/{surl}",
-            # Backup with different URL formats
+            f"https://teraboxapi.nephobox.com/api?url=https://terabox.com/s/{surl}",
+            # Backup with different formats
             f"https://wdzone-terabox-api.vercel.app/api?url=https://terasharelink.com/s/{surl}",
             f"https://wdzone-terabox-api.vercel.app/api?url=https://nephobox.com/s/{surl}"
         ]
         
         session = await self.get_session()
         
-        for i, api_url in enumerate(api_endpoints):
+        for i, api_url in enumerate(priority_apis):
             try:
                 domain = api_url.split('//')[1].split('/')[0]
-                logger.info(f"🔄 API {i+1}/{len(api_endpoints)}: {domain}")
+                logger.info(f"🚀 FAST-API {i+1}/{len(priority_apis)}: {domain}")
                 
-                # Disable compression to avoid brotli errors
                 headers = {'Accept-Encoding': 'identity'}
                 
-                async with session.get(api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    logger.info(f"📊 API {i+1} Response: HTTP {response.status}")
+                async with session.get(api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as response:
+                    logger.info(f"⚡ API {i+1} Response: HTTP {response.status}")
                     
                     if response.status == 200:
                         try:
-                            text_content = await response.text()
-                            result = json.loads(text_content)
+                            result = await response.json()
                             
-                            # Check for successful response
                             if "✅ Status" in result and "📜 Extracted Info" in result:
                                 extracted_info = result["📜 Extracted Info"]
                                 if extracted_info and len(extracted_info) > 0:
@@ -155,167 +150,218 @@ class TeraboxDownloader:
                                     download_url = data.get("🔽 Direct Download Link", "")
                                     
                                     if download_url and filename:
-                                        # Clean filename
                                         if not os.path.splitext(filename)[1]:
-                                            # Guess extension from URL or default to .mp4
-                                            if any(ext in download_url.lower() for ext in ['.mp4', '.mkv', '.avi']):
-                                                filename += '.mp4'
-                                            elif any(ext in download_url.lower() for ext in ['.mp3', '.wav', '.flac']):
-                                                filename += '.mp3'
-                                            else:
-                                                filename += '.mp4'  # Default for video
+                                            filename += '.mp4'
                                         
-                                        logger.info(f"✅ API {i+1} SUCCESS: {filename}")
-                                        logger.info(f"🔗 Download URL: {download_url[:60]}...")
+                                        logger.info(f"⚡ FAST-SUCCESS {i+1}: {filename}")
                                         
                                         return {
                                             "success": True,
                                             "filename": sanitize_filename(filename),
                                             "download_url": download_url,
-                                            "api_source": domain
+                                            "api_source": domain,
+                                            "priority": i + 1
                                         }
                             
-                            logger.warning(f"⚠️ API {i+1}: Invalid response format")
-                            
                         except json.JSONDecodeError as e:
-                            logger.warning(f"⚠️ API {i+1}: JSON decode error - {e}")
-                        except Exception as e:
-                            logger.warning(f"⚠️ API {i+1}: Response processing error - {e}")
+                            logger.warning(f"⚠️ API {i+1}: JSON decode error")
                     
-                    elif response.status == 500:
-                        logger.warning(f"⚠️ API {i+1}: Server error (500)")
-                    elif response.status == 403:
-                        logger.warning(f"⚠️ API {i+1}: Forbidden (403)")
-                    else:
-                        logger.warning(f"⚠️ API {i+1}: HTTP {response.status}")
-                        
             except asyncio.TimeoutError:
-                logger.warning(f"⚠️ API {i+1}: Timeout")
-            except aiohttp.ClientError as e:
-                logger.warning(f"⚠️ API {i+1}: Connection error - {str(e)[:100]}")
+                logger.warning(f"⚠️ API {i+1}: Timeout (trying next)")
+                continue
             except Exception as e:
-                logger.warning(f"⚠️ API {i+1}: Unexpected error - {str(e)[:100]}")
+                logger.warning(f"⚠️ API {i+1}: Error - {str(e)[:50]}")
+                continue
         
-        logger.error("❌ All API endpoints failed")
-        return {"success": False, "error": "All API endpoints failed"}
+        logger.error("❌ All fast APIs failed")
+        return {"success": False, "error": "All APIs failed"}
 
-    async def download_file_safe(self, download_url: str, filename: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """Safe download with multiple retry strategies"""
+    async def smart_resume_download(self, download_url: str, filename: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
+        """Smart download with REAL resume capability"""
         download_path = os.path.join("/tmp", filename)
+        temp_path = f"{download_path}.tmp"
         
-        # Multiple download strategies
-        strategies = [
-            {'headers': self.headers.copy(), 'method': 'standard'},
-            {'headers': {'User-Agent': 'curl/7.68.0', 'Accept': '*/*'}, 'method': 'curl'},
-            {'headers': {'User-Agent': 'wget/1.20.3', 'Accept': '*/*'}, 'method': 'wget'},
-            {'headers': {}, 'method': 'minimal'}
-        ]
-        
-        for attempt, strategy in enumerate(strategies, 1):
-            try:
-                logger.info(f"🚀 Download attempt {attempt}/4 ({strategy['method']}): {filename}")
-                
-                session = await self.get_session()
-                headers = strategy['headers']
-                
-                async with session.get(download_url, headers=headers) as response:
-                    logger.info(f"📊 Download Response: HTTP {response.status}")
-                    
-                    if response.status not in [200, 206]:
-                        logger.warning(f"⚠️ Attempt {attempt}: HTTP {response.status}")
-                        if attempt < len(strategies):
-                            await asyncio.sleep(2)  # Wait before retry
-                            continue
-                        else:
-                            return None
-                    
-                    total_size = int(response.headers.get('content-length', 0))
-                    logger.info(f"📦 File size: {get_readable_file_size(total_size)}")
-                    
-                    downloaded = 0
-                    start_time = asyncio.get_event_loop().time()
-                    
-                    async with aiofiles.open(download_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(self.chunk_size):
-                            if not chunk:
-                                break
-                                
-                            await f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # Progress callback every 16MB
-                            if progress_callback and downloaded % (16 * 1024 * 1024) < self.chunk_size:
-                                elapsed = asyncio.get_event_loop().time() - start_time
-                                speed_mbps = (downloaded / (1024 * 1024)) / max(elapsed / 60, 0.01)
-                                
-                                try:
-                                    await progress_callback(downloaded, max(total_size, downloaded), speed_mbps)
-                                except Exception as e:
-                                    logger.warning(f"Progress callback error: {e}")
-                    
-                    # Verify download
-                    if os.path.exists(download_path):
-                        final_size = os.path.getsize(download_path)
-                        if final_size > 0:
-                            elapsed = asyncio.get_event_loop().time() - start_time
-                            final_speed = (final_size / (1024 * 1024)) / max(elapsed / 60, 0.01)
-                            
-                            logger.info(f"✅ Download complete: {get_readable_file_size(final_size)} at {final_speed:.1f} MB/min")
-                            return download_path
-                        else:
-                            logger.warning(f"⚠️ Attempt {attempt}: File is empty")
-                    else:
-                        logger.warning(f"⚠️ Attempt {attempt}: File not created")
-                    
-                    if attempt < len(strategies):
-                        await asyncio.sleep(3)  # Wait before retry
-                        
-            except Exception as e:
-                logger.error(f"❌ Attempt {attempt} error: {str(e)[:100]}")
-                if attempt < len(strategies):
-                    await asyncio.sleep(5)  # Wait before retry
-                
-                # Clean up partial file
+        try:
+            session = await self.get_session()
+            
+            # Check existing partial download
+            resume_pos = 0
+            if os.path.exists(temp_path):
+                resume_pos = os.path.getsize(temp_path)
+                logger.info(f"📂 SMART RESUME from {get_readable_file_size(resume_pos)}")
+            elif os.path.exists(download_path):
+                # File exists but might be incomplete
+                file_size = os.path.getsize(download_path)
+                logger.info(f"📂 File exists: {get_readable_file_size(file_size)}")
+                return download_path
+            
+            # Fast download strategies (ordered by success rate)
+            strategies = [
+                {
+                    'name': 'HIGH_SPEED',
+                    'headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                        'Accept': '*/*',
+                        'Connection': 'keep-alive',
+                        'Accept-Encoding': 'identity'
+                    }
+                },
+                {
+                    'name': 'DIRECT_STREAM', 
+                    'headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                        'Accept': '*/*'
+                    }
+                },
+                {
+                    'name': 'MOBILE_AGENT',
+                    'headers': {
+                        'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+                        'Accept': '*/*'
+                    }
+                }
+            ]
+            
+            for attempt, strategy in enumerate(strategies, 1):
                 try:
-                    if os.path.exists(download_path):
-                        os.remove(download_path)
+                    logger.info(f"🚀 SMART DOWNLOAD attempt {attempt}/3 ({strategy['name']}): {filename}")
+                    
+                    headers = strategy['headers'].copy()
+                    
+                    # Add range header for resume
+                    if resume_pos > 0:
+                        headers['Range'] = f'bytes={resume_pos}-'
+                        logger.info(f"📍 Resume from byte: {resume_pos}")
+                    
+                    async with session.get(download_url, headers=headers) as response:
+                        status = response.status
+                        logger.info(f"📊 Response: HTTP {status}")
+                        
+                        if status not in [200, 206]:
+                            logger.warning(f"⚠️ Attempt {attempt}: HTTP {status}")
+                            if attempt < len(strategies):
+                                await asyncio.sleep(2)  # Brief pause before retry
+                                continue
+                            else:
+                                return None
+                        
+                        # Get file size info
+                        content_length = response.headers.get('content-length', '0')
+                        total_size = int(content_length) if content_length.isdigit() else 0
+                        
+                        if resume_pos > 0 and status == 206:
+                            # Partial content - add resume position
+                            total_size += resume_pos
+                            logger.info(f"📦 Total size: {get_readable_file_size(total_size)} (resuming)")
+                        else:
+                            logger.info(f"📦 Total size: {get_readable_file_size(total_size)} (fresh)")
+                        
+                        # Start download with progress tracking
+                        downloaded = resume_pos
+                        start_time = time.time()
+                        last_progress_time = start_time
+                        
+                        # Open file in append mode if resuming, write mode if fresh
+                        mode = 'ab' if resume_pos > 0 and status == 206 else 'wb'
+                        
+                        async with aiofiles.open(temp_path, mode) as f:
+                            async for chunk in response.content.iter_chunked(self.chunk_size):
+                                if not chunk:
+                                    break
+                                    
+                                await f.write(chunk)
+                                downloaded += len(chunk)
+                                
+                                # Progress callback every 2 seconds or 32MB
+                                current_time = time.time()
+                                if (progress_callback and 
+                                    (current_time - last_progress_time >= 2.0 or 
+                                     downloaded % (32 * 1024 * 1024) < self.chunk_size)):
+                                    
+                                    elapsed = current_time - start_time
+                                    speed_mbps = (downloaded / (1024 * 1024)) / max(elapsed / 60, 0.01)
+                                    
+                                    try:
+                                        await progress_callback(downloaded, max(total_size, downloaded), speed_mbps)
+                                        last_progress_time = current_time
+                                    except Exception as e:
+                                        logger.warning(f"Progress callback error: {e}")
+                        
+                        # Verify and finalize download
+                        if os.path.exists(temp_path):
+                            final_size = os.path.getsize(temp_path)
+                            if final_size > 0:
+                                # Move temp file to final location
+                                os.rename(temp_path, download_path)
+                                
+                                elapsed = time.time() - start_time
+                                final_speed = (final_size / (1024 * 1024)) / max(elapsed / 60, 0.01)
+                                
+                                logger.info(f"✅ SMART SUCCESS: {get_readable_file_size(final_size)} at {final_speed:.1f} MB/min")
+                                return download_path
+                            else:
+                                logger.warning(f"⚠️ Attempt {attempt}: Downloaded file is empty")
+                        else:
+                            logger.warning(f"⚠️ Attempt {attempt}: Temp file not created")
+                        
+                        if attempt < len(strategies):
+                            await asyncio.sleep(3)  # Wait before retry
+                            
+                except asyncio.TimeoutError:
+                    logger.warning(f"⏰ Attempt {attempt}: Download timeout")
+                    if attempt < len(strategies):
+                        await asyncio.sleep(5)
+                except Exception as e:
+                    logger.error(f"❌ Attempt {attempt} error: {str(e)[:100]}")
+                    if attempt < len(strategies):
+                        await asyncio.sleep(5)
+                
+                # Clean up failed temp file
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
                 except:
                     pass
-        
-        logger.error("❌ All download attempts failed")
-        return None
+            
+            logger.error("❌ All smart download attempts failed")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Smart download error: {e}")
+            return None
 
     async def download_file(self, url: str, progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """Main download method - comprehensive approach"""
+        """Optimized download with smart resume"""
         try:
-            logger.info(f"🎯 COMPREHENSIVE TERABOX DOWNLOAD: {url[:50]}...")
+            logger.info(f"⚡ OPTIMIZED TERABOX DOWNLOAD: {url[:50]}...")
             
-            # Step 1: Extract surl
+            # Step 1: Fast surl extraction
             surl = await self.extract_surl_from_url(url)
             if not surl:
-                logger.error("❌ Could not extract surl from URL")
+                logger.error("❌ Could not extract surl")
                 return None
             
             logger.info(f"🔑 Using surl: {surl}")
             
-            # Step 2: Try working APIs
-            file_info = await self.try_working_apis(surl)
+            # Step 2: Get fastest API response
+            file_info = await self.get_fastest_download_url(surl)
             if not file_info.get("success"):
-                logger.error(f"❌ API extraction failed: {file_info.get('error')}")
+                logger.error(f"❌ Fast API failed: {file_info.get('error')}")
                 return None
             
             download_url = file_info["download_url"]
             filename = file_info["filename"]
             api_source = file_info.get("api_source", "unknown")
+            priority = file_info.get("priority", 0)
             
             logger.info(f"📄 File: {filename}")
-            logger.info(f"🌐 Source API: {api_source}")
+            logger.info(f"🚀 Source: {api_source} (Priority {priority})")
             
-            # Step 3: Download with retry strategies
-            return await self.download_file_safe(download_url, filename, progress_callback)
+            # Step 3: Smart resume download
+            return await self.smart_resume_download(download_url, filename, progress_callback)
             
         except Exception as e:
-            logger.error(f"❌ Comprehensive download error: {e}")
+            logger.error(f"❌ Optimized download error: {e}")
             return None
 
     # Compatibility methods
@@ -325,7 +371,7 @@ class TeraboxDownloader:
         if not surl:
             return {"success": False, "error": "Could not extract surl"}
         
-        return await self.try_working_apis(surl)
+        return await self.get_fastest_download_url(surl)
 
     async def close(self):
         """Close session"""
@@ -334,5 +380,5 @@ class TeraboxDownloader:
             self.session = None
 
 # Global instance
-terabox_downloader = TeraboxDownloader()
-                    
+terabox_downloader = OptimizedTeraboxDownloader()
+        
