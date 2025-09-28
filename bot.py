@@ -13,7 +13,7 @@ from handlers.verification_handler import setup_verification_handlers
 # Setup logging
 logger = setup_logging()
 
-# ✅ NEW: Universal URL Validator Function (FIXES "URL NOT SUPPORTED")
+# ✅ ENHANCED: Universal URL Validator Function (FIXES "URL NOT SUPPORTED")
 def is_terabox_url(url: str) -> bool:
     """Universal Terabox URL validator - SUPPORTS ALL DOMAINS"""
     try:
@@ -57,49 +57,58 @@ def is_terabox_url(url: str) -> bool:
         logger.warning(f"URL validation error: {e}")
         return False
 
-# ✅ NEW: Enhanced message handler setup
-def setup_enhanced_message_handlers(app):
-    """Setup enhanced message handlers with better URL validation"""
+# ✅ FIXED: URL Pre-filter (runs BEFORE existing handlers)
+def setup_url_prefilter(app):
+    """Setup URL pre-filter that allows teraboxlink.com through"""
     from pyrogram import filters
     
-    @app.on_message(filters.text & filters.private)
-    async def handle_url_message(client, message):
-        """Enhanced URL handler with better validation"""
+    @app.on_message(filters.text & filters.private & ~filters.command, group=-1)
+    async def url_prefilter(client, message):
+        """Pre-filter that checks URLs before other handlers"""
         try:
             url = message.text.strip()
             
-            # Skip if message is a command
-            if url.startswith('/'):
-                return
-                
-            # Check if it's a supported Terabox URL
+            # Log the URL attempt
+            logger.info(f"🔍 URL pre-check: {url[:50]}...")
+            
+            # If it's a supported Terabox URL (including teraboxlink.com), let it through
             if is_terabox_url(url):
                 logger.info(f"✅ Valid Terabox URL detected: {url[:50]}...")
-                
-                # Send to existing message handlers
-                # This will trigger your existing download logic
+                # Don't stop propagation - let existing handlers process it
                 return
-            else:
-                # Check if it looks like a URL but isn't supported
-                if any(check in url.lower() for check in ['http://', 'https://', 'www.', '.com', '.net', '.org']):
-                    await message.reply(
-                        "⚠️ **URL Not Supported**\n\n"
-                        "**Supported domains:**\n"
-                        "• terabox.com\n"
-                        "• terasharelink.com\n" 
-                        "• teraboxlink.com\n"  # ← NOW SHOWS AS SUPPORTED
-                        "• nephobox.com\n"
-                        "• 4funbox.com\n"
-                        "• mirrobox.com\n"
-                        "• And other Terabox variants\n\n"
-                        "Please send a valid Terabox share link."
-                    )
-                    return
-                    
+            
+            # If it looks like a URL but isn't supported, show error and stop
+            if any(indicator in url.lower() for indicator in ['http://', 'https://', 'www.', '.com', '.net', '.org']):
+                logger.info("❌ Unsupported URL detected")
+                await message.reply(
+                    "⚠️ **URL Not Supported**\n\n"
+                    "**✅ Supported domains:**\n"
+                    "• terabox.com\n"
+                    "• terasharelink.com\n"
+                    "• teraboxlink.com ✅\n"  # ← NOW SHOWS AS SUPPORTED
+                    "• nephobox.com\n"
+                    "• 4funbox.com\n"
+                    "• mirrobox.com\n"
+                    "• And other Terabox variants\n\n"
+                    "Please send a valid Terabox share link."
+                )
+                # Stop propagation for unsupported URLs
+                message.stop_propagation()
+                return
+                
         except Exception as e:
-            logger.error(f"Enhanced message handler error: {e}")
+            logger.error(f"URL pre-filter error: {e}")
+    
+    logger.info("✅ URL pre-filter setup complete")
 
-    logger.info("✅ Enhanced message handlers setup complete")
+# ✅ NEW: Additional utility functions
+def log_url_attempt(url: str):
+    """Log URL validation attempts for debugging"""
+    try:
+        domain = url.split('//')[1].split('/')[0] if '//' in url else url.split('/')[0]
+        logger.info(f"🔍 URL validation attempt: {domain}")
+    except:
+        pass
 
 async def main():
     """Main bot entry point"""
@@ -117,20 +126,14 @@ async def main():
         # Start health server
         await start_health_server()
         
+        # ✅ CRITICAL: Setup URL pre-filter FIRST (highest priority)
+        setup_url_prefilter(app)
+        logger.info("✅ URL pre-filter setup complete")
+        
         # Setup handlers (YOUR EXISTING HANDLERS)
         setup_command_handlers(app)
         setup_callback_handlers(app)
-        
-        # ✅ ENHANCED: Setup message handlers with better URL validation
-        try:
-            setup_enhanced_message_handlers(app)
-            logger.info("✅ Enhanced URL validation setup complete")
-        except Exception as e:
-            logger.warning(f"⚠️ Enhanced validation failed, using standard handlers: {e}")
-            setup_message_handlers(app)
-        
-        # Setup your existing message handlers (as fallback/additional)
-        setup_message_handlers(app)
+        setup_message_handlers(app)  # Your existing handlers will now work with teraboxlink.com
         
         # NEW: Setup verification handlers
         try:
@@ -148,7 +151,7 @@ async def main():
         logger.info(f"🤖 Bot started: @{me.username} (ID: {me.id})")
         logger.info("🎯 Bot is ready for Terabox downloads!")
         
-        # ✅ NEW: Enhanced status logging
+        # ✅ ENHANCED: Status logging
         try:
             import os
             is_verify = os.environ.get("IS_VERIFY", "False")
@@ -157,7 +160,7 @@ async def main():
             logger.info(f"🎁 Free downloads: {free_limit} per user")
             
             # ✅ NEW: Log supported URL patterns
-            logger.info("🌐 URL Support: terabox.com, terasharelink.com, teraboxlink.com, nephobox.com, etc.")
+            logger.info("🌐 Enhanced URL Support: terabox.com, terasharelink.com, teraboxlink.com, nephobox.com, etc.")
             
         except:
             pass
@@ -173,15 +176,6 @@ async def main():
         except:
             pass
 
-# ✅ NEW: Additional utility functions
-def log_url_attempt(url: str):
-    """Log URL validation attempts for debugging"""
-    try:
-        domain = url.split('//')[1].split('/')[0] if '//' in url else url.split('/')[0]
-        logger.info(f"🔍 URL validation attempt: {domain}")
-    except:
-        pass
-
 if __name__ == "__main__":
     try:
         asyncio.run(main())
@@ -189,4 +183,4 @@ if __name__ == "__main__":
         logger.info("🛑 Bot stopped by user")
     except Exception as e:
         logger.error(f"❌ Startup error: {e}")
-    
+            
